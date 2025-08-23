@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ラベルチェックアプリ 商品マスタ管理 v1.0r6</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .toast {
+            position: fixed; bottom: 20px; right: 20px; padding: 1rem 1.5rem;
+            border-radius: 0.5rem; color: white; opacity: 0;
+            transition: opacity 0.3s ease-in-out; z-index: 100;
+        }
+        .toast.show { opacity: 1; }
+        .toast.success { background-color: #28a745; }
+        .toast.error { background-color: #dc3545; }
+        .thumbnail { width: 60px; height: 60px; object-fit: cover; }
+        .spinner { border: 4px solid rgba(0, 0, 0, 0.1); width: 24px; height: 24px; border-radius: 50%; border-left-color: #4f46e5; animation: spin 1s ease infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+</head>
+<body class="bg-gray-100">
+
+    <div class="container mx-auto max-w-6xl my-8 p-4 bg-white shadow-lg rounded-lg">
+        <header class="text-center py-4 border-b">
+            <h1 class="text-3xl font-bold text-gray-800">商品マスタ管理</h1>
+            <p id="db-status-indicator" class="text-sm font-semibold mt-1">データベースに接続中...</p>
+        </header>
+
+        <main class="mt-6">
+            <section id="add-product-section" class="mb-8 p-6 bg-gray-50 rounded-lg border">
+                <h2 class="text-2xl font-semibold text-gray-700 mb-4">新規商品を追加</h2>
+                
+                <div class="mb-4">
+                    <h3 class="text-lg font-medium text-gray-800 mb-2">1. ラベルを撮影</h3>
+                    <input type="file" accept="image/*" capture="environment" id="cameraInput" class="hidden">
+                    <button id="takePictureBtn" class="w-full bg-indigo-500 hover:bg-indigo-600 text-white font-bold py-3 px-4 rounded-lg flex items-center justify-center transition-colors">
+                        <svg class="w-6 h-6 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                        ラベルを撮影して自動入力
+                    </button>
+                    <div id="image-preview-container" class="mt-4 hidden text-center">
+                        <img id="imagePreview" src="" class="max-w-xs mx-auto rounded-md border bg-white p-1">
+                        <div id="ai-loading" class="mt-2 flex items-center justify-center text-gray-600 hidden">
+                            <div class="spinner mr-2"></div>
+                            <span>AIがラベルを解析中...</span>
+                        </div>
+                    </div>
+                </div>
+
+                <form id="add-product-form">
+                    <h3 class="text-lg font-medium text-gray-800 mb-2 mt-6">2. 内容を確認・修正して追加</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <input type="text" id="productMngId" name="mngId" placeholder="管理番号 (必須)" required class="p-3 border border-gray-300 rounded-lg">
+                        <input type="text" id="productName" name="name" placeholder="商品名 (自動入力)" required class="p-3 border border-gray-300 rounded-lg">
+                        <input type="text" id="productOrigin" name="origin" placeholder="産地 (自動入力)" required class="p-3 border border-gray-300 rounded-lg">
+                        <input type="text" id="productJan" name="jan" placeholder="JANコード (自動入力)" required class="p-3 border border-gray-300 rounded-lg">
+                        <input type="url" id="productLabelImageUrl" name="labelImageUrl" placeholder="ラベル画像URL (任意)" class="p-3 border border-gray-300 rounded-lg md:col-span-2">
+                        <button type="submit" id="submit-product-btn" class="w-full bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-4 rounded-lg transition-colors disabled:bg-gray-400 md:col-span-2">
+                            商品を追加する
+                        </button>
+                    </div>
+                </form>
+            </section>
+
+            <section>
+                <h2 class="text-2xl font-semibold text-gray-700 mb-4">商品一覧</h2>
+                <div id="loading-indicator" class="text-center py-10">
+                    <p>商品データを読み込んでいます...</p>
+                </div>
+                <div class="overflow-x-auto">
+                    <table id="product-table" class="min-w-full bg-white hidden">
+                        <thead class="bg-gray-200">
+                            <tr>
+                                <th class="py-3 px-4 text-left">管理番号</th>
+                                <th class="py-3 px-4 text-left">商品名</th>
+                                <th class="py-3 px-4 text-left">産地</th>
+                                <th class="py-3 px-4 text-left">JAN</th>
+                                <th class="py-3 px-4 text-left">ラベル画像</th>
+                                <th class="py-3 px-4 text-left">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="product-list" class="divide-y divide-gray-200"></tbody>
+                    </table>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <div id="toast-notification" class="toast"></div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getFirestore, collection, getDocs, addDoc, deleteDoc, doc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            const dbStatusIndicator = document.getElementById('db-status-indicator');
+            const loadingIndicator = document.getElementById('loading-indicator');
+            const productTable = document.getElementById('product-table');
+            const productList = document.getElementById('product-list');
+            const addProductForm = document.getElementById('add-product-form');
+            const submitProductBtn = document.getElementById('submit-product-btn');
+            const toastNotification = document.getElementById('toast-notification');
+            const cameraInput = document.getElementById('cameraInput');
+            const takePictureBtn = document.getElementById('takePictureBtn');
+            const imagePreviewContainer = document.getElementById('image-preview-container');
+            const imagePreview = document.getElementById('imagePreview');
+            const aiLoading = document.getElementById('ai-loading');
+
+            let db = null;
+
+            try {
+                const firebaseConfig = {
+                    apiKey: "AIzaSyB56Wa0Yg36M_XP8FJVOatoGV6jAZSRY4s",
+                    authDomain: "aac-label-check-app.firebaseapp.com",
+                    projectId: "aac-label-check-app",
+                    storageBucket: "aac-label-check-app.appspot.com",
+                    messagingSenderId: "70378973214",
+                    appId: "1:70378973214:web:4584bcc489e90a3202660f",
+                    measurementId: "G-4E2BJ3CQ9C"
+                };
+
+                const app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                dbStatusIndicator.textContent = 'データベース接続: 正常';
+                dbStatusIndicator.classList.add('text-green-600');
+                
+                await loadProducts();
+
+            } catch (e) {
+                console.error("Firebaseの初期化に失敗:", e);
+                dbStatusIndicator.textContent = 'データベース接続: エラー';
+                dbStatusIndicator.classList.add('text-red-600');
+                loadingIndicator.textContent = 'データベースに接続できませんでした。';
+            }
+
+            function showToast(message, isSuccess = true) {
+                toastNotification.textContent = message;
+                toastNotification.className = `toast show ${isSuccess ? 'success' : 'error'}`;
+                setTimeout(() => { toastNotification.classList.remove('show'); }, 3000);
+            }
+
+            function renderProductList(products) {
+                productList.innerHTML = '';
+                if (products.length === 0) {
+                    loadingIndicator.textContent = '商品が登録されていません。';
+                    loadingIndicator.classList.remove('hidden');
+                    productTable.classList.add('hidden');
+                    return;
+                }
+
+                products.forEach(product => {
+                    const tr = document.createElement('tr');
+                    const imageUrl = product.labelImageUrl ? `<img src="${product.labelImageUrl}" alt="${product.name}" class="thumbnail rounded">` : 'なし';
+                    tr.innerHTML = `
+                        <td class="py-4 px-4 whitespace-nowrap">${product.mngId}</td>
+                        <td class="py-4 px-4 whitespace-nowrap font-medium">${product.name}</td>
+                        <td class="py-4 px-4 whitespace-nowrap">${product.origin}</td>
+                        <td class="py-4 px-4 whitespace-nowrap">${product.jan}</td>
+                        <td class="py-4 px-4">${imageUrl}</td>
+                        <td class="py-4 px-4 whitespace-nowrap">
+                            <button data-id="${product.docId}" class="delete-btn text-red-500 hover:text-red-700">削除</button>
+                        </td>
+                    `;
+                    productList.appendChild(tr);
+                });
+
+                loadingIndicator.classList.add('hidden');
+                productTable.classList.remove('hidden');
+            }
+
+            async function loadProducts() {
+                try {
+                    loadingIndicator.classList.remove('hidden');
+                    productTable.classList.add('hidden');
+                    
+                    const querySnapshot = await getDocs(collection(db, "products"));
+                    const products = querySnapshot.docs.map(doc => ({ docId: doc.id, ...doc.data() }));
+                    
+                    renderProductList(products);
+                } catch (error) {
+                    console.error("商品データの読み込みに失敗:", error);
+                    showToast("商品データの読み込みに失敗しました。", false);
+                    loadingIndicator.textContent = '商品データの読み込みに失敗しました。';
+                }
+            }
+
+            takePictureBtn.addEventListener('click', () => cameraInput.click());
+
+            cameraInput.addEventListener('change', async (event) => {
+                const file = event.target.files[0];
+                if (!file) return;
+
+                const reader = new FileReader();
+                reader.onload = async (e) => {
+                    imagePreview.src = e.target.result;
+                    imagePreviewContainer.classList.remove('hidden');
+                    aiLoading.classList.remove('hidden');
+                    
+                    try {
+                        const base64ImageData = e.target.result.split(',')[1];
+                        const extractedData = await analyzeLabelWithAI(base64ImageData);
+                        
+                        if (extractedData) {
+                            document.getElementById('productName').value = extractedData.productName || '';
+                            document.getElementById('productOrigin').value = extractedData.origin || '';
+                            document.getElementById('productJan').value = extractedData.janCode || '';
+                            showToast("ラベル情報を自動入力しました。");
+                        } else {
+                           showToast("AIが情報を抽出できませんでした。手動で入力してください。", false);
+                        }
+                    } catch (error) {
+                        console.error("AI解析エラー:", error);
+                        showToast(`AI解析中にエラーが発生しました: ${error.message}`, false);
+                    } finally {
+                        aiLoading.classList.add('hidden');
+                    }
+                };
+                reader.readAsDataURL(file);
+            });
+
+            async function analyzeLabelWithAI(base64ImageData) {
+                const prompt = "このラベル画像から、以下の情報をJSON形式で抽出してください: `productName` (製品名), `origin` (産地), `janCode` (JANコード)。該当する情報がない場合は `null` としてください。";
+                const payload = {
+                    contents: [{ parts: [{ text: prompt }, { inlineData: { mimeType: "image/jpeg", data: base64ImageData } }] }],
+                    generationConfig: {
+                        responseMimeType: "application/json",
+                        responseSchema: {
+                            type: "OBJECT",
+                            properties: {
+                                "productName": { "type": "STRING" },
+                                "origin": { "type": "STRING" },
+                                "janCode": { "type": "STRING" }
+                            }
+                        }
+                    }
+                };
+                const apiKey = "";
+                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
+                
+                const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+                if (!response.ok) throw new Error(`APIエラー: ${response.statusText}`);
+                
+                const result = await response.json();
+                const jsonText = result.candidates?.[0]?.content?.parts?.[0]?.text;
+                return jsonText ? JSON.parse(jsonText) : null;
+            }
+
+            addProductForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                submitProductBtn.disabled = true;
+                submitProductBtn.textContent = '追加中...';
+
+                try {
+                    const newProductId = 'p_' + Math.random().toString(36).substring(2, 11);
+
+                    const newProduct = {
+                        id: newProductId,
+                        mngId: document.getElementById('productMngId').value,
+                        name: document.getElementById('productName').value,
+                        origin: document.getElementById('productOrigin').value,
+                        jan: document.getElementById('productJan').value,
+                        labelImageUrl: document.getElementById('productLabelImageUrl').value,
+                    };
+
+                    await addDoc(collection(db, "products"), newProduct);
+                    showToast("商品が正常に追加されました。");
+                    addProductForm.reset();
+                    imagePreviewContainer.classList.add('hidden');
+                    await loadProducts();
+                } catch (error) {
+                    console.error("商品の追加に失敗:", error);
+                    showToast("商品の追加に失敗しました。", false);
+                } finally {
+                    submitProductBtn.disabled = false;
+                    submitProductBtn.textContent = '商品を追加する';
+                }
+            });
+
+            productList.addEventListener('click', async (e) => {
+                if (e.target.classList.contains('delete-btn')) {
+                    const docId = e.target.dataset.id;
+                    if (confirm("この商品を本当に削除しますか？")) {
+                        try {
+                            await deleteDoc(doc(db, "products", docId));
+                            showToast("商品を削除しました。");
+                            await loadProducts();
+                        } catch (error) {
+                            console.error("商品の削除に失敗:", error);
+                            showToast("商品の削除に失敗しました。", false);
+                        }
+                    }
+                }
+            });
+        });
+    </script>
+</body>
+</html>
