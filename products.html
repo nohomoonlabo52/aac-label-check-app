@@ -113,15 +113,7 @@
             let db = null;
 
             try {
-                const firebaseConfig = {
-                    apiKey: "AIzaSyB56Wa0Yg36M_XP8FJVOatoGV6jAZSRY4s",
-                    authDomain: "aac-label-check-app.firebaseapp.com",
-                    projectId: "aac-label-check-app",
-                    storageBucket: "aac-label-check-app.appspot.com",
-                    messagingSenderId: "70378973214",
-                    appId: "1:70378973214:web:4584bcc489e90a3202660f",
-                    measurementId: "G-4E2BJ3CQ9C"
-                };
+                const firebaseConfig = {}; // この中身はデプロイ時に自動で挿入されます
 
                 const app = initializeApp(firebaseConfig);
                 db = getFirestore(app);

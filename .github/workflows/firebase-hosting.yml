@@ -1,0 +1,53 @@
+name: Deploy to Firebase Hosting
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+
+jobs:
+  build_and_deploy:
+    runs-on: ubuntu-latest
+
+    # mainブランチにpushされた時の設定
+    environment: 
+      name: production
+      url: ${{ steps.deploy_production.outputs.url }}
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Inject Production Firebase Config
+        if: github.ref == 'refs/heads/main'
+        run: |
+          for file in *.html; do
+            sed -i "s|const firebaseConfig = {};|const firebaseConfig = ${{ secrets.FIREBASE_CONFIG_PRODUCTION }};|" "$file"
+          done
+
+      - name: Inject Development Firebase Config
+        if: github.ref == 'refs/heads/develop'
+        run: |
+          for file in *.html; do
+            sed -i "s|const firebaseConfig = {};|const firebaseConfig = ${{ secrets.FIREBASE_CONFIG_DEVELOPMENT }};|" "$file"
+          done
+
+      - name: Deploy to Firebase Hosting
+        id: deploy_production
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: '${{ secrets.GITHUB_TOKEN }}'
+          firebaseServiceAccount: '${{ secrets.FIREBASE_SERVICE_ACCOUNT_AAC_LABEL_CHECK_APP }}' # 本番用のサービスアカウント
+          channelId: live
+          projectId: aac-label-check-app # 本番用のプロジェクトID
+        if: github.ref == 'refs/heads/main'
+
+      - name: Deploy to Firebase Hosting (Development)
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: '${{ secrets.GITHUB_TOKEN }}'
+          firebaseServiceAccount: '${{ secrets.FIREBASE_SERVICE_ACCOUNT_AAC_LABEL_CHECK_APP_DEV }}' # テスト用のサービスアカウント
+          channelId: live
+          projectId: aac-label-check-app-dev # テスト用のプロジェクトID
+        if: github.ref == 'refs/heads/develop'
