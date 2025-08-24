@@ -7,47 +7,50 @@ on:
       - develop
 
 jobs:
-  build_and_deploy:
-    runs-on: ubuntu-latest
-
-    # mainブランチにpushされた時の設定
-    environment: 
-      name: production
-      url: ${{ steps.deploy_production.outputs.url }}
+  # 本番環境へのデプロイ用ジョブ
+  deploy_production:
     if: github.ref == 'refs/heads/main'
-
+    runs-on: ubuntu-latest
+    environment: production # 本番用の金庫(Environment)を指定
     steps:
       - uses: actions/checkout@v3
 
       - name: Inject Production Firebase Config
-        if: github.ref == 'refs/heads/main'
         run: |
           for file in *.html; do
-            sed -i "s|const firebaseConfig = {};|const firebaseConfig = ${{ secrets.FIREBASE_CONFIG_PRODUCTION }};|" "$file"
+            if grep -q "const firebaseConfig = {};" "$file"; then
+              sed -i "s|const firebaseConfig = {};|const firebaseConfig = ${{ secrets.FIREBASE_CONFIG_PRODUCTION }};|" "$file"
+            fi
           done
 
-      - name: Inject Development Firebase Config
-        if: github.ref == 'refs/heads/develop'
-        run: |
-          for file in *.html; do
-            sed -i "s|const firebaseConfig = {};|const firebaseConfig = ${{ secrets.FIREBASE_CONFIG_DEVELOPMENT }};|" "$file"
-          done
-
-      - name: Deploy to Firebase Hosting
-        id: deploy_production
+      - name: Deploy to Firebase Hosting (Production)
         uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: '${{ secrets.GITHUB_TOKEN }}'
-          firebaseServiceAccount: '${{ secrets.FIREBASE_SERVICE_ACCOUNT_AAC_LABEL_CHECK_APP }}' # 本番用のサービスアカウント
+          firebaseServiceAccount: '${{ secrets.FIREBASE_SERVICE_ACCOUNT_AAC_LABEL_CHECK_APP }}'
+          projectId: aac-label-check-app
           channelId: live
-          projectId: aac-label-check-app # 本番用のプロジェクトID
-        if: github.ref == 'refs/heads/main'
+
+  # テスト環境へのデプロイ用ジョブ
+  deploy_development:
+    if: github.ref == 'refs/heads/develop'
+    runs-on: ubuntu-latest
+    environment: development # テスト用の金庫(Environment)を指定
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Inject Development Firebase Config
+        run: |
+          for file in *.html; do
+            if grep -q "const firebaseConfig = {};" "$file"; then
+              sed -i "s|const firebaseConfig = {};|const firebaseConfig = ${{ secrets.FIREBASE_CONFIG_DEVELOPMENT }};|" "$file"
+            fi
+          done
 
       - name: Deploy to Firebase Hosting (Development)
         uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: '${{ secrets.GITHUB_TOKEN }}'
-          firebaseServiceAccount: '${{ secrets.FIREBASE_SERVICE_ACCOUNT_AAC_LABEL_CHECK_APP_DEV }}' # テスト用のサービスアカウント
+          firebaseServiceAccount: '${{ secrets.FIREBASE_SERVICE_ACCOUNT_AAC_LABEL_CHECK_APP_DEV }}'
+          projectId: aac-label-check-app-dev
           channelId: live
-          projectId: aac-label-check-app-dev # テスト用のプロジェクトID
-        if: github.ref == 'refs/heads/develop'
