@@ -17,9 +17,13 @@ jobs:
 
       - name: Inject Production Firebase Config
         run: |
+          # 合鍵を一時ファイルに書き出す
+          echo "const firebaseConfig = ${{ secrets.FIREBASE_CONFIG_PRODUCTION }};" > config.js
+
+          # 全てのHTMLファイルで、目印の行を一時ファイルの中身に置き換える
           for file in *.html; do
             if grep -q "const firebaseConfig = {};" "$file"; then
-              sed -i "s|const firebaseConfig = {};|const firebaseConfig = ${{ secrets.FIREBASE_CONFIG_PRODUCTION }};|" "$file"
+              sed -i -e '/const firebaseConfig = {};/r config.js' -e '/const firebaseConfig = {};/d' "$file"
             fi
           done
 
@@ -41,9 +45,13 @@ jobs:
 
       - name: Inject Development Firebase Config
         run: |
+          # 合鍵を一時ファイルに書き出す
+          echo "const firebaseConfig = ${{ secrets.FIREBASE_CONFIG_DEVELOPMENT }};" > config.js
+
+          # 全てのHTMLファイルで、目印の行を一時ファイルの中身に置き換える
           for file in *.html; do
             if grep -q "const firebaseConfig = {};" "$file"; then
-              sed -i "s|const firebaseConfig = {};|const firebaseConfig = ${{ secrets.FIREBASE_CONFIG_DEVELOPMENT }};|" "$file"
+              sed -i -e '/const firebaseConfig = {};/r config.js' -e '/const firebaseConfig = {};/d' "$file"
             fi
           done
 
