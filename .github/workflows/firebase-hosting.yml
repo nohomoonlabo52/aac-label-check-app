@@ -11,22 +11,17 @@ jobs:
   deploy_production:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    environment: production # 本番用の金庫(Environment)を指定
+    environment: production
     steps:
       - uses: actions/checkout@v3
-
       - name: Inject Production Firebase Config
         run: |
-          # 合鍵を一時ファイルに書き出す
-          echo "const firebaseConfig = ${{ secrets.FIREBASE_CONFIG_PRODUCTION }};" > config.js
-
-          # 全てのHTMLファイルで、目印の行を一時ファイルの中身に置き換える
+          CONFIG_VALUE=$(echo "${{ secrets.FIREBASE_CONFIG_PRODUCTION }}" | tr -d '\n\r')
           for file in *.html; do
             if grep -q "const firebaseConfig = {};" "$file"; then
-              sed -i -e '/const firebaseConfig = {};/r config.js' -e '/const firebaseConfig = {};/d' "$file"
+              sed -i "s|const firebaseConfig = {};|const firebaseConfig = ${CONFIG_VALUE};|" "$file"
             fi
           done
-
       - name: Deploy to Firebase Hosting (Production)
         uses: FirebaseExtended/action-hosting-deploy@v0
         with:
@@ -39,22 +34,17 @@ jobs:
   deploy_development:
     if: github.ref == 'refs/heads/develop'
     runs-on: ubuntu-latest
-    environment: development # テスト用の金庫(Environment)を指定
+    environment: development
     steps:
       - uses: actions/checkout@v3
-
       - name: Inject Development Firebase Config
         run: |
-          # 合鍵を一時ファイルに書き出す
-          echo "const firebaseConfig = ${{ secrets.FIREBASE_CONFIG_DEVELOPMENT }};" > config.js
-
-          # 全てのHTMLファイルで、目印の行を一時ファイルの中身に置き換える
+          CONFIG_VALUE=$(echo "${{ secrets.FIREBASE_CONFIG_DEVELOPMENT }}" | tr -d '\n\r')
           for file in *.html; do
             if grep -q "const firebaseConfig = {};" "$file"; then
-              sed -i -e '/const firebaseConfig = {};/r config.js' -e '/const firebaseConfig = {};/d' "$file"
+              sed -i "s|const firebaseConfig = {};|const firebaseConfig = ${CONFIG_VALUE};|" "$file"
             fi
           done
-
       - name: Deploy to Firebase Hosting (Development)
         uses: FirebaseExtended/action-hosting-deploy@v0
         with:
