@@ -16,10 +16,13 @@ jobs:
       - uses: actions/checkout@v3
       - name: Inject Production Firebase Config
         run: |
-          CONFIG_JSON='${{ secrets.FIREBASE_CONFIG_PRODUCTION }}'
+          # 1. 本番用の合鍵を、一時ファイルに書き出す
+          echo "const firebaseConfig = ${{ secrets.FIREBASE_CONFIG_PRODUCTION }};" > config.js
+
+          # 2. 全てのHTMLファイルで、目印の行を一時ファイルの中身に置き換える
           for file in *.html; do
             if grep -q "__FIREBASE_CONFIG__" "$file"; then
-              sed -i "s|__FIREBASE_CONFIG__|${CONFIG_JSON}|g" "$file"
+              sed -i -e '/__FIREBASE_CONFIG__/r config.js' -e '/__FIREBASE_CONFIG__/d' "$file"
             fi
           done
       - name: Deploy to Firebase Hosting (Production)
@@ -39,10 +42,13 @@ jobs:
       - uses: actions/checkout@v3
       - name: Inject Development Firebase Config
         run: |
-          CONFIG_JSON='${{ secrets.FIREBASE_CONFIG_DEVELOPMENT }}'
+          # 1. テスト用の合鍵を、一時ファイルに書き出す
+          echo "const firebaseConfig = ${{ secrets.FIREBASE_CONFIG_DEVELOPMENT }};" > config.js
+
+          # 2. 全てのHTMLファイルで、目印の行を一時ファイルの中身に置き換える
           for file in *.html; do
             if grep -q "__FIREBASE_CONFIG__" "$file"; then
-              sed -i "s|__FIREBASE_CONFIG__|${CONFIG_JSON}|g" "$file"
+              sed -i -e '/__FIREBASE_CONFIG__/r config.js' -e '/__FIREBASE_CONFIG__/d' "$file"
             fi
           done
       - name: Deploy to Firebase Hosting (Development)
