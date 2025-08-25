@@ -3,54 +3,78 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Firebase 接続テスト</title>
+    <title>Firebase 接続テスト v2</title>
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="bg-gray-100 flex items-center justify-center min-h-screen">
-    <div id="status-card" class="p-8 bg-white rounded-lg shadow-xl text-center">
+    <div id="status-card" class="p-8 bg-white rounded-lg shadow-xl text-center w-11/12 max-w-md">
         <h1 class="text-2xl font-bold mb-4">Firebase 接続テスト</h1>
-        <div id="status-message" class="text-lg font-medium">
-            <p>接続を試みています...</p>
+        <div id="status-message" class="text-lg font-medium space-y-2">
+            <p id="init-status">1. Firebaseの初期化を試みています...</p>
+            <p id="auth-status">2. 匿名サインインを試みています...</p>
+            <p id="db-status">3. データベースからの読み込みを試みています...</p>
         </div>
     </div>
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getFirestore, collection, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
 
-        const statusMessage = document.getElementById('status-message');
+        const initStatus = document.getElementById('init-status');
+        const authStatus = document.getElementById('auth-status');
+        const dbStatus = document.getElementById('db-status');
         const statusCard = document.getElementById('status-card');
 
-        try {
-            // ▼▼▼▼▼ ここに【テスト用】の firebaseConfig を直接貼り付けてください ▼▼▼▼▼
-            const firebaseConfig = {
-                apiKey: "AIzaSyAKbZLddDrKAyfJ2Q_NbTJQYW7Z7mHS8co",
-                authDomain: "aac-label-check-app-dev.firebaseapp.com",
-                projectId: "aac-label-check-app-dev",
-                storageBucket: "aac-label-check-app-dev.firebasestorage.app",
-                messagingSenderId: "483154552374",
-                appId: "1:483154552374:web:00c11a23d53030d19e5a97"
-            };
-            // ▲▲▲▲▲ ここまで ▲▲▲▲▲
+        async function runTest() {
+            try {
+                // ▼▼▼▼▼ ここに【テスト用】の firebaseConfig を直接貼り付けてください ▼▼▼▼▼
+                const firebaseConfig = {
+                    apiKey: "AIzaSyAKbZLddDrKAyfJ2Q_NbTJQYW7Z7mHS8co",
+                    authDomain: "aac-label-check-app-dev.firebaseapp.com",
+                    projectId: "aac-label-check-app-dev",
+                    storageBucket: "aac-label-check-app-dev.firebasestorage.app",
+                    messagingSenderId: "483154552374",
+                    appId: "1:483154552374:web:00c11a23d53030d19e5a97"
+                };
+                // ▲▲▲▲▲ ここまで ▲▲▲▲▲
 
-            const app = initializeApp(firebaseConfig);
-            const db = getFirestore(app);
+                // --- ステップ1: 初期化 ---
+                const app = initializeApp(firebaseConfig);
+                const db = getFirestore(app);
+                const auth = getAuth(app);
+                initStatus.textContent = '✅ 1. Firebaseの初期化に成功しました。';
+                initStatus.classList.add('text-green-600');
 
-            statusMessage.innerHTML = '<p class="text-blue-600">Firebaseの初期化に成功しました。</p><p>データベースからデータを読み込んでいます...</p>';
+                // --- ステップ2: 匿名サインイン ---
+                await signInAnonymously(auth);
+                authStatus.textContent = '✅ 2. 匿名サインインに成功しました。';
+                authStatus.classList.add('text-green-600');
 
-            // "products"コレクションからデータを読み取れるかテスト
-            await getDocs(collection(db, "products"));
+                // --- ステップ3: データベース読み込み ---
+                await getDocs(collection(db, "products"));
+                dbStatus.textContent = '✅ 3. データベースからの読み込みに成功しました。';
+                dbStatus.classList.add('text-green-600');
 
-            statusCard.classList.remove('bg-white');
-            statusCard.classList.add('bg-green-100', 'border', 'border-green-400');
-            statusMessage.innerHTML = '<p class="text-2xl font-bold text-green-700">🎉 接続成功！</p><p class="mt-2 text-gray-600">データベースから正常にデータを読み取れました。</p>';
+                statusCard.classList.add('bg-green-100', 'border', 'border-green-400');
 
-        } catch (e) {
-            console.error("テスト中にエラーが発生しました:", e);
-            statusCard.classList.remove('bg-white');
-            statusCard.classList.add('bg-red-100', 'border', 'border-red-400');
-            statusMessage.innerHTML = `<p class="text-2xl font-bold text-red-700">❌ 接続失敗</p><p class="mt-2 text-gray-600">エラーが発生しました。詳細はブラウザのコンソールを確認してください。</p><p class="mt-4 text-left text-sm bg-gray-100 p-2 rounded">${e.message}</p>`;
+            } catch (e) {
+                console.error("テスト中にエラーが発生しました:", e);
+                statusCard.classList.add('bg-red-100', 'border', 'border-red-400');
+                if (!initStatus.textContent.includes('✅')) {
+                    initStatus.textContent = `❌ 1. Firebaseの初期化に失敗: ${e.message}`;
+                    initStatus.classList.add('text-red-600');
+                } else if (!authStatus.textContent.includes('✅')) {
+                    authStatus.textContent = `❌ 2. 匿名サインインに失敗: ${e.message}`;
+                    authStatus.classList.add('text-red-600');
+                } else {
+                    dbStatus.textContent = `❌ 3. データベースからの読み込みに失敗: ${e.message}`;
+                    dbStatus.classList.add('text-red-600');
+                }
+            }
         }
+
+        runTest();
     </script>
 </body>
 </html>
