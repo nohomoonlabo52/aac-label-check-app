@@ -3,20 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ラベルチェックアプリ 作業指示管理画面 v1.0r1</title>
+    <title>ラベルチェックアプリ 作業指示管理 v1.0r2</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         body { font-family: 'Inter', sans-serif; }
         .toast {
-            position: fixed;
-            bottom: 20px;
-            right: 20px;
-            padding: 1rem 1.5rem;
-            border-radius: 0.5rem;
-            color: white;
-            opacity: 0;
-            transition: opacity 0.3s ease-in-out;
-            z-index: 100;
+            position: fixed; bottom: 20px; right: 20px; padding: 1rem 1.5rem;
+            border-radius: 0.5rem; color: white; opacity: 0;
+            transition: opacity 0.3s ease-in-out; z-index: 100;
         }
         .toast.show { opacity: 1; }
         .toast.success { background-color: #28a745; }
@@ -35,21 +29,17 @@
         </header>
 
         <main class="mt-6">
-            <!-- 新規作業指示追加セクション -->
             <section class="mb-8 p-6 bg-gray-50 rounded-lg border">
                 <h2 class="text-2xl font-semibold text-gray-700 mb-4">新規作業指示を追加</h2>
                 <form id="add-order-form" class="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
-                    
                     <div>
                         <label for="product-select" class="block text-sm font-medium text-gray-700">製品（ラベル）を選択</label>
                         <select id="product-select" required class="mt-1 block w-full p-3 border border-gray-300 rounded-lg"></select>
                     </div>
-                    
                     <div>
                         <label for="material-select" class="block text-sm font-medium text-gray-700">原料を選択</label>
                         <select id="material-select" required class="mt-1 block w-full p-3 border border-gray-300 rounded-lg"></select>
                     </div>
-
                     <div>
                         <label for="status-select" class="block text-sm font-medium text-gray-700">状態</label>
                         <select id="status-select" required class="mt-1 block w-full p-3 border border-gray-300 rounded-lg">
@@ -58,29 +48,24 @@
                             <option>完了</option>
                         </select>
                     </div>
-
                     <div>
                         <label for="case-quantity" class="block text-sm font-medium text-gray-700">作業ケース数</label>
                         <input type="number" id="case-quantity" placeholder="例: 50" required class="mt-1 block w-full p-3 border border-gray-300 rounded-lg">
                     </div>
-
                     <div>
                         <label for="packs-per-case" class="block text-sm font-medium text-gray-700">ケース入数</label>
                         <input type="number" id="packs-per-case" placeholder="例: 12" required class="mt-1 block w-full p-3 border border-gray-300 rounded-lg">
                     </div>
-
                     <div>
                         <label for="total-packs" class="block text-sm font-medium text-gray-700">総パック数 (自動計算)</label>
                         <input type="number" id="total-packs" readonly class="mt-1 block w-full p-3 border border-gray-300 rounded-lg bg-gray-200">
                     </div>
-
                     <button type="submit" id="submit-order-btn" class="md:col-span-3 w-full bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-4 rounded-lg transition-colors">
                         作業指示を追加する
                     </button>
                 </form>
             </section>
 
-            <!-- 作業指示一覧セクション -->
             <section>
                 <h2 class="text-2xl font-semibold text-gray-700 mb-4">作業指示一覧</h2>
                 <div id="loading-indicator" class="text-center py-10">
@@ -110,8 +95,9 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getFirestore, collection, getDocs, addDoc, deleteDoc, doc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
 
-        document.addEventListener('DOMContentLoaded', async () => {
+        document.addEventListener('DOMContentLoaded', () => {
             const dbStatusIndicator = document.getElementById('db-status-indicator');
             const loadingIndicator = document.getElementById('loading-indicator');
             const orderTable = document.getElementById('order-table');
@@ -128,23 +114,6 @@
             let db = null;
             let products = [];
             let materials = [];
-
-            try {
-                const firebaseConfig = __FIREBASE_CONFIG__; // この目印はデプロイ時に本物の情報に置き換えられます
-
-                const app = initializeApp(firebaseConfig);
-                db = getFirestore(app);
-                dbStatusIndicator.textContent = 'データベース接続: 正常';
-                dbStatusIndicator.classList.add('text-green-600');
-                
-                await loadInitialData();
-
-            } catch (e) {
-                console.error("Firebaseの初期化に失敗:", e);
-                dbStatusIndicator.textContent = 'データベース接続: エラー';
-                dbStatusIndicator.classList.add('text-red-600');
-                loadingIndicator.textContent = 'データベースに接続できませんでした。';
-            }
 
             function showToast(message, isSuccess = true) {
                 toastNotification.textContent = message;
@@ -213,58 +182,82 @@
                 loadingIndicator.classList.add('hidden');
                 orderTable.classList.remove('hidden');
             }
-
-            addOrderForm.addEventListener('submit', async (e) => {
-                e.preventDefault();
-                submitOrderBtn.disabled = true;
-                submitOrderBtn.textContent = '追加中...';
-
+            
+            async function main() {
                 try {
-                    const ordersSnapshot = await getDocs(collection(db, "work_orders"));
-                    const newIdNumber = ordersSnapshot.size + 1;
-                    const newOrderId = 'wo' + String(newIdNumber).padStart(4, '0');
+                    const firebaseConfig = __FIREBASE_CONFIG__;
+                    const app = initializeApp(firebaseConfig);
+                    db = getFirestore(app);
+                    const auth = getAuth(app);
 
-                    const newOrder = {
-                        orderId: newOrderId,
-                        productId: document.getElementById('product-select').value,
-                        materialId: document.getElementById('material-select').value,
-                        status: document.getElementById('status-select').value,
-                        caseQuantity: parseInt(caseQuantityInput.value),
-                        packsPerCase: parseInt(packsPerCaseInput.value),
-                        totalPacks: parseInt(totalPacksInput.value),
-                    };
+                    await signInAnonymously(auth);
 
-                    await addDoc(collection(db, "work_orders"), newOrder);
-                    showToast("作業指示が正常に追加されました。");
-                    addOrderForm.reset();
-                    await loadWorkOrders();
-                } catch (error) {
-                    console.error("作業指示の追加に失敗:", error);
-                    showToast("作業指示の追加に失敗しました。", false);
-                } finally {
-                    submitOrderBtn.disabled = false;
-                    submitOrderBtn.textContent = '作業指示を追加する';
-                }
-            });
+                    dbStatusIndicator.textContent = 'データベース接続: 正常';
+                    dbStatusIndicator.classList.add('text-green-600');
+                    
+                    await loadInitialData();
 
-            orderList.addEventListener('click', async (e) => {
-                if (e.target.classList.contains('delete-btn')) {
-                    const docId = e.target.dataset.id;
-                    if (confirm("この作業指示を本当に削除しますか？")) {
+                    addOrderForm.addEventListener('submit', async (e) => {
+                        e.preventDefault();
+                        submitOrderBtn.disabled = true;
+                        submitOrderBtn.textContent = '追加中...';
+
                         try {
-                            await deleteDoc(doc(db, "work_orders", docId));
-                            showToast("作業指示を削除しました。");
+                            const ordersSnapshot = await getDocs(collection(db, "work_orders"));
+                            const newIdNumber = ordersSnapshot.size + 1;
+                            const newOrderId = 'wo' + String(newIdNumber).padStart(4, '0');
+
+                            const newOrder = {
+                                orderId: newOrderId,
+                                productId: document.getElementById('product-select').value,
+                                materialId: document.getElementById('material-select').value,
+                                status: document.getElementById('status-select').value,
+                                caseQuantity: parseInt(caseQuantityInput.value),
+                                packsPerCase: parseInt(packsPerCaseInput.value),
+                                totalPacks: parseInt(totalPacksInput.value),
+                            };
+
+                            await addDoc(collection(db, "work_orders"), newOrder);
+                            showToast("作業指示が正常に追加されました。");
+                            addOrderForm.reset();
                             await loadWorkOrders();
                         } catch (error) {
-                            console.error("作業指示の削除に失敗:", error);
-                            showToast("作業指示の削除に失敗しました。", false);
+                            console.error("作業指示の追加に失敗:", error);
+                            showToast("作業指示の追加に失敗しました。", false);
+                        } finally {
+                            submitOrderBtn.disabled = false;
+                            submitOrderBtn.textContent = '作業指示を追加する';
                         }
-                    }
-                }
-            });
+                    });
 
-            caseQuantityInput.addEventListener('input', calculateTotalPacks);
-            packsPerCaseInput.addEventListener('input', calculateTotalPacks);
+                    orderList.addEventListener('click', async (e) => {
+                        if (e.target.classList.contains('delete-btn')) {
+                            const docId = e.target.dataset.id;
+                            if (confirm("この作業指示を本当に削除しますか？")) {
+                                try {
+                                    await deleteDoc(doc(db, "work_orders", docId));
+                                    showToast("作業指示を削除しました。");
+                                    await loadWorkOrders();
+                                } catch (error) {
+                                    console.error("作業指示の削除に失敗:", error);
+                                    showToast("作業指示の削除に失敗しました。", false);
+                                }
+                            }
+                        }
+                    });
+
+                    caseQuantityInput.addEventListener('input', calculateTotalPacks);
+                    packsPerCaseInput.addEventListener('input', calculateTotalPacks);
+
+                } catch (e) {
+                    console.error("Firebaseの初期化またはデータ読み込みに失敗:", e);
+                    dbStatusIndicator.textContent = 'データベース接続: エラー';
+                    dbStatusIndicator.classList.add('text-red-600');
+                    loadingIndicator.textContent = `データベースに接続できませんでした: ${e.message}`;
+                }
+            }
+
+            main();
         });
     </script>
 </body>

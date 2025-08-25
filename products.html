@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ラベルチェックアプリ 商品マスタ管理 v1.0r6</title>
+    <title>ラベルチェックアプリ 商品マスタ管理 v1.0r3</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         body { font-family: 'Inter', sans-serif; }
@@ -54,7 +54,7 @@
                 <form id="add-product-form">
                     <h3 class="text-lg font-medium text-gray-800 mb-2 mt-6">2. 内容を確認・修正して追加</h3>
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <input type="text" id="productMngId" name="mngId" placeholder="管理番号 (必須)" required class="p-3 border border-gray-300 rounded-lg">
+                        <input type="text" id="productMngId" name="mngId" placeholder="管理番号 (自動入力)" required class="p-3 border border-gray-300 rounded-lg">
                         <input type="text" id="productName" name="name" placeholder="商品名 (自動入力)" required class="p-3 border border-gray-300 rounded-lg">
                         <input type="text" id="productOrigin" name="origin" placeholder="産地 (自動入力)" required class="p-3 border border-gray-300 rounded-lg">
                         <input type="text" id="productJan" name="jan" placeholder="JANコード (自動入力)" required class="p-3 border border-gray-300 rounded-lg">
@@ -75,6 +75,7 @@
                     <table id="product-table" class="min-w-full bg-white hidden">
                         <thead class="bg-gray-200">
                             <tr>
+                                <th class="py-3 px-4 text-left">商品ID</th>
                                 <th class="py-3 px-4 text-left">管理番号</th>
                                 <th class="py-3 px-4 text-left">商品名</th>
                                 <th class="py-3 px-4 text-left">産地</th>
@@ -95,8 +96,9 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getFirestore, collection, getDocs, addDoc, deleteDoc, doc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
 
-        document.addEventListener('DOMContentLoaded', async () => {
+        document.addEventListener('DOMContentLoaded', () => {
             const dbStatusIndicator = document.getElementById('db-status-indicator');
             const loadingIndicator = document.getElementById('loading-indicator');
             const productTable = document.getElementById('product-table');
@@ -111,23 +113,6 @@
             const aiLoading = document.getElementById('ai-loading');
 
             let db = null;
-
-            try {
-                const firebaseConfig = __FIREBASE_CONFIG__; // この目印はデプロイ時に本物の情報に置き換えられます
-
-                const app = initializeApp(firebaseConfig);
-                db = getFirestore(app);
-                dbStatusIndicator.textContent = 'データベース接続: 正常';
-                dbStatusIndicator.classList.add('text-green-600');
-                
-                await loadProducts();
-
-            } catch (e) {
-                console.error("Firebaseの初期化に失敗:", e);
-                dbStatusIndicator.textContent = 'データベース接続: エラー';
-                dbStatusIndicator.classList.add('text-red-600');
-                loadingIndicator.textContent = 'データベースに接続できませんでした。';
-            }
 
             function showToast(message, isSuccess = true) {
                 toastNotification.textContent = message;
@@ -148,6 +133,7 @@
                     const tr = document.createElement('tr');
                     const imageUrl = product.labelImageUrl ? `<img src="${product.labelImageUrl}" alt="${product.name}" class="thumbnail rounded">` : 'なし';
                     tr.innerHTML = `
+                        <td class="py-4 px-4 whitespace-nowrap">${product.id}</td>
                         <td class="py-4 px-4 whitespace-nowrap">${product.mngId}</td>
                         <td class="py-4 px-4 whitespace-nowrap font-medium">${product.name}</td>
                         <td class="py-4 px-4 whitespace-nowrap">${product.origin}</td>
@@ -179,43 +165,9 @@
                     loadingIndicator.textContent = '商品データの読み込みに失敗しました。';
                 }
             }
-
-            takePictureBtn.addEventListener('click', () => cameraInput.click());
-
-            cameraInput.addEventListener('change', async (event) => {
-                const file = event.target.files[0];
-                if (!file) return;
-
-                const reader = new FileReader();
-                reader.onload = async (e) => {
-                    imagePreview.src = e.target.result;
-                    imagePreviewContainer.classList.remove('hidden');
-                    aiLoading.classList.remove('hidden');
-                    
-                    try {
-                        const base64ImageData = e.target.result.split(',')[1];
-                        const extractedData = await analyzeLabelWithAI(base64ImageData);
-                        
-                        if (extractedData) {
-                            document.getElementById('productName').value = extractedData.productName || '';
-                            document.getElementById('productOrigin').value = extractedData.origin || '';
-                            document.getElementById('productJan').value = extractedData.janCode || '';
-                            showToast("ラベル情報を自動入力しました。");
-                        } else {
-                           showToast("AIが情報を抽出できませんでした。手動で入力してください。", false);
-                        }
-                    } catch (error) {
-                        console.error("AI解析エラー:", error);
-                        showToast(`AI解析中にエラーが発生しました: ${error.message}`, false);
-                    } finally {
-                        aiLoading.classList.add('hidden');
-                    }
-                };
-                reader.readAsDataURL(file);
-            });
-
+            
             async function analyzeLabelWithAI(base64ImageData) {
-                const prompt = "このラベル画像から、以下の情報をJSON形式で抽出してください: `productName` (製品名), `origin` (産地), `janCode` (JANコード)。該当する情報がない場合は `null` としてください。";
+                const prompt = "このラベル画像から、以下の情報をJSON形式で抽出してください: `productName` (製品名), `origin` (産地), `janCode` (JANコード), `mngId` (管理番号、もしあれば)。該当する情報がない場合は `null` としてください。";
                 const payload = {
                     contents: [{ parts: [{ text: prompt }, { inlineData: { mimeType: "image/jpeg", data: base64ImageData } }] }],
                     generationConfig: {
@@ -223,9 +175,8 @@
                         responseSchema: {
                             type: "OBJECT",
                             properties: {
-                                "productName": { "type": "STRING" },
-                                "origin": { "type": "STRING" },
-                                "janCode": { "type": "STRING" }
+                                "productName": { "type": "STRING" }, "origin": { "type": "STRING" },
+                                "janCode": { "type": "STRING" }, "mngId": { "type": "STRING" }
                             }
                         }
                     }
@@ -241,52 +192,115 @@
                 return jsonText ? JSON.parse(jsonText) : null;
             }
 
-            addProductForm.addEventListener('submit', async (e) => {
-                e.preventDefault();
-                submitProductBtn.disabled = true;
-                submitProductBtn.textContent = '追加中...';
-
+            // --- メイン実行関数 ---
+            async function main() {
                 try {
-                    const newProductId = 'p_' + Math.random().toString(36).substring(2, 11);
+                    const firebaseConfig = __FIREBASE_CONFIG__;
+                    const app = initializeApp(firebaseConfig);
+                    db = getFirestore(app);
+                    const auth = getAuth(app);
+                    
+                    await signInAnonymously(auth);
 
-                    const newProduct = {
-                        id: newProductId,
-                        mngId: document.getElementById('productMngId').value,
-                        name: document.getElementById('productName').value,
-                        origin: document.getElementById('productOrigin').value,
-                        jan: document.getElementById('productJan').value,
-                        labelImageUrl: document.getElementById('productLabelImageUrl').value,
-                    };
-
-                    await addDoc(collection(db, "products"), newProduct);
-                    showToast("商品が正常に追加されました。");
-                    addProductForm.reset();
-                    imagePreviewContainer.classList.add('hidden');
+                    dbStatusIndicator.textContent = 'データベース接続: 正常';
+                    dbStatusIndicator.classList.add('text-green-600');
+                    
                     await loadProducts();
-                } catch (error) {
-                    console.error("商品の追加に失敗:", error);
-                    showToast("商品の追加に失敗しました。", false);
-                } finally {
-                    submitProductBtn.disabled = false;
-                    submitProductBtn.textContent = '商品を追加する';
-                }
-            });
+                    
+                    // イベントリスナーの設定
+                    takePictureBtn.addEventListener('click', () => cameraInput.click());
 
-            productList.addEventListener('click', async (e) => {
-                if (e.target.classList.contains('delete-btn')) {
-                    const docId = e.target.dataset.id;
-                    if (confirm("この商品を本当に削除しますか？")) {
+                    cameraInput.addEventListener('change', async (event) => {
+                        const file = event.target.files[0];
+                        if (!file) return;
+
+                        const reader = new FileReader();
+                        reader.onload = async (e) => {
+                            imagePreview.src = e.target.result;
+                            imagePreviewContainer.classList.remove('hidden');
+                            aiLoading.classList.remove('hidden');
+                            
+                            try {
+                                const base64ImageData = e.target.result.split(',')[1];
+                                const extractedData = await analyzeLabelWithAI(base64ImageData);
+                                
+                                if (extractedData) {
+                                    document.getElementById('productMngId').value = extractedData.mngId || '';
+                                    document.getElementById('productName').value = extractedData.productName || '';
+                                    document.getElementById('productOrigin').value = extractedData.origin || '';
+                                    document.getElementById('productJan').value = extractedData.janCode || '';
+                                    showToast("ラベル情報を自動入力しました。");
+                                } else {
+                                   showToast("AIが情報を抽出できませんでした。手動で入力してください。", false);
+                                }
+                            } catch (error) {
+                                console.error("AI解析エラー:", error);
+                                showToast(`AI解析中にエラーが発生しました: ${error.message}`, false);
+                            } finally {
+                                aiLoading.classList.add('hidden');
+                            }
+                        };
+                        reader.readAsDataURL(file);
+                    });
+
+                    addProductForm.addEventListener('submit', async (e) => {
+                        e.preventDefault();
+                        submitProductBtn.disabled = true;
+                        submitProductBtn.textContent = '追加中...';
+
                         try {
-                            await deleteDoc(doc(db, "products", docId));
-                            showToast("商品を削除しました。");
+                            const productsSnapshot = await getDocs(collection(db, "products"));
+                            const newIdNumber = productsSnapshot.size + 1;
+                            const newProductId = 'p' + String(newIdNumber).padStart(4, '0');
+
+                            const newProduct = {
+                                id: newProductId,
+                                mngId: document.getElementById('productMngId').value,
+                                name: document.getElementById('productName').value,
+                                origin: document.getElementById('productOrigin').value,
+                                jan: document.getElementById('productJan').value,
+                                labelImageUrl: document.getElementById('productLabelImageUrl').value,
+                            };
+
+                            await addDoc(collection(db, "products"), newProduct);
+                            showToast("商品が正常に追加されました。");
+                            addProductForm.reset();
+                            imagePreviewContainer.classList.add('hidden');
                             await loadProducts();
                         } catch (error) {
-                            console.error("商品の削除に失敗:", error);
-                            showToast("商品の削除に失敗しました。", false);
+                            console.error("商品の追加に失敗:", error);
+                            showToast("商品の追加に失敗しました。", false);
+                        } finally {
+                            submitProductBtn.disabled = false;
+                            submitProductBtn.textContent = '商品を追加する';
                         }
-                    }
+                    });
+
+                    productList.addEventListener('click', async (e) => {
+                        if (e.target.classList.contains('delete-btn')) {
+                            const docId = e.target.dataset.id;
+                            if (confirm("この商品を本当に削除しますか？")) {
+                                try {
+                                    await deleteDoc(doc(db, "products", docId));
+                                    showToast("商品を削除しました。");
+                                    await loadProducts();
+                                } catch (error) {
+                                    console.error("商品の削除に失敗:", error);
+                                    showToast("商品の削除に失敗しました。", false);
+                                }
+                            }
+                        }
+                    });
+
+                } catch (e) {
+                    console.error("Firebaseの初期化またはデータ読み込みに失敗:", e);
+                    dbStatusIndicator.textContent = 'データベース接続: エラー';
+                    dbStatusIndicator.classList.add('text-red-600');
+                    loadingIndicator.textContent = `データベースに接続できませんでした: ${e.message}`;
                 }
-            });
+            }
+
+            main();
         });
     </script>
 </body>
