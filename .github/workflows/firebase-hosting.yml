@@ -19,7 +19,7 @@ jobs:
           CONFIG_JSON='${{ secrets.FIREBASE_CONFIG_PRODUCTION }}'
           for file in *.html; do
             if grep -q "__FIREBASE_CONFIG__" "$file"; then
-              sed -i "s|__FIREBASE_CONFIG__|${CONFIG_JSON}|" "$file"
+              sed -i "s|__FIREBASE_CONFIG__|${CONFIG_JSON}|g" "$file"
             fi
           done
       - name: Deploy to Firebase Hosting (Production)
@@ -42,7 +42,7 @@ jobs:
           CONFIG_JSON='${{ secrets.FIREBASE_CONFIG_DEVELOPMENT }}'
           for file in *.html; do
             if grep -q "__FIREBASE_CONFIG__" "$file"; then
-              sed -i "s|__FIREBASE_CONFIG__|${CONFIG_JSON}|" "$file"
+              sed -i "s|__FIREBASE_CONFIG__|${CONFIG_JSON}|g" "$file"
             fi
           done
       - name: Deploy to Firebase Hosting (Development)
