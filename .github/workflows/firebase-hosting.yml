@@ -16,20 +16,17 @@ jobs:
       - uses: actions/checkout@v3
       - name: Inject Production Firebase Config
         run: |
-          # 1. 本番用の合鍵を、一時ファイルに書き出す
-          echo "const firebaseConfig = ${{ secrets.FIREBASE_CONFIG_PRODUCTION }};" > config.js # VSCode拡張機能からの警告を意図的に無視--> # yaml-language-server: ignore
-
-          # 2. 全てのHTMLファイルで、目印の行を一時ファイルの中身に置き換える
+          CONFIG_JSON='${{ secrets.FIREBASE_CONFIG_PRODUCTION }}'
           for file in *.html; do
             if grep -q "__FIREBASE_CONFIG__" "$file"; then
-              sed -i -e '/__FIREBASE_CONFIG__/r config.js' -e '/__FIREBASE_CONFIG__/d' "$file"
+              sed -i "s|__FIREBASE_CONFIG__|${CONFIG_JSON}|g" "$file"
             fi
           done
       - name: Deploy to Firebase Hosting (Production)
         uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: '${{ secrets.GITHUB_TOKEN }}'
-          firebaseServiceAccount: '${{ secrets.FIREBASE_SERVICE_ACCOUNT_AAC_LABEL_CHECK_APP }}' # VSCode拡張機能からの警告を意図的に無視--> # yaml-language-server: ignore
+          firebaseServiceAccount: '${{ secrets.FIREBASE_SERVICE_ACCOUNT_AAC_LABEL_CHECK_APP }}'
           projectId: aac-label-check-app
           channelId: live
 
@@ -42,19 +39,16 @@ jobs:
       - uses: actions/checkout@v3
       - name: Inject Development Firebase Config
         run: |
-          # 1. テスト用の合鍵を、一時ファイルに書き出す
-          echo "const firebaseConfig = ${{ secrets.FIREBASE_CONFIG_DEVELOPMENT }};" > config.js # VSCode拡張機能からの警告を意図的に無視--> # yaml-language-server: ignore
-
-          # 2. 全てのHTMLファイルで、目印の行を一時ファイルの中身に置き換える
+          CONFIG_JSON='${{ secrets.FIREBASE_CONFIG_DEVELOPMENT }}'
           for file in *.html; do
             if grep -q "__FIREBASE_CONFIG__" "$file"; then
-              sed -i -e '/__FIREBASE_CONFIG__/r config.js' -e '/__FIREBASE_CONFIG__/d' "$file"
+              sed -i "s|__FIREBASE_CONFIG__|${CONFIG_JSON}|g" "$file"
             fi
           done
       - name: Deploy to Firebase Hosting (Development)
         uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: '${{ secrets.GITHUB_TOKEN }}'
-          firebaseServiceAccount: '${{ secrets.FIREBASE_SERVICE_ACCOUNT_AAC_LABEL_CHECK_APP_DEV }}' # VSCode拡張機能からの警告を意図的に無視--> # yaml-language-server: ignore
+          firebaseServiceAccount: '${{ secrets.FIREBASE_SERVICE_ACCOUNT_AAC_LABEL_CHECK_APP_DEV }}'
           projectId: aac-label-check-app-dev
           channelId: live
