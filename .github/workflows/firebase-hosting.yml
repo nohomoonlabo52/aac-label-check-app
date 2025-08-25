@@ -17,7 +17,7 @@ jobs:
       - name: Inject Production Firebase Config
         run: |
           # 1. 本番用の合鍵を、一時ファイルに書き出す
-          echo "const firebaseConfig = ${{ secrets.FIREBASE_CONFIG_PRODUCTION }};" > config.js
+          echo "const firebaseConfig = ${{ secrets.FIREBASE_CONFIG_PRODUCTION }};" > config.js # VSCode拡張機能からの警告を意図的に無視--> # yaml-language-server: ignore
 
           # 2. 全てのHTMLファイルで、目印の行を一時ファイルの中身に置き換える
           for file in *.html; do
@@ -29,7 +29,7 @@ jobs:
         uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: '${{ secrets.GITHUB_TOKEN }}'
-          firebaseServiceAccount: '${{ secrets.FIREBASE_SERVICE_ACCOUNT_AAC_LABEL_CHECK_APP }}'
+          firebaseServiceAccount: '${{ secrets.FIREBASE_SERVICE_ACCOUNT_AAC_LABEL_CHECK_APP }}' # VSCode拡張機能からの警告を意図的に無視--> # yaml-language-server: ignore
           projectId: aac-label-check-app
           channelId: live
 
@@ -43,7 +43,7 @@ jobs:
       - name: Inject Development Firebase Config
         run: |
           # 1. テスト用の合鍵を、一時ファイルに書き出す
-          echo "const firebaseConfig = ${{ secrets.FIREBASE_CONFIG_DEVELOPMENT }};" > config.js
+          echo "const firebaseConfig = ${{ secrets.FIREBASE_CONFIG_DEVELOPMENT }};" > config.js # VSCode拡張機能からの警告を意図的に無視--> # yaml-language-server: ignore
 
           # 2. 全てのHTMLファイルで、目印の行を一時ファイルの中身に置き換える
           for file in *.html; do
@@ -55,6 +55,6 @@ jobs:
         uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: '${{ secrets.GITHUB_TOKEN }}'
-          firebaseServiceAccount: '${{ secrets.FIREBASE_SERVICE_ACCOUNT_AAC_LABEL_CHECK_APP_DEV }}'
+          firebaseServiceAccount: '${{ secrets.FIREBASE_SERVICE_ACCOUNT_AAC_LABEL_CHECK_APP_DEV }}' # VSCode拡張機能からの警告を意図的に無視--> # yaml-language-server: ignore
           projectId: aac-label-check-app-dev
           channelId: live
