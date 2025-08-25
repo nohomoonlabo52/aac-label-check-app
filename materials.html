@@ -92,7 +92,7 @@
 
             try {
                 // ▼▼▼▼▼ この部分は、GitHub Actionsによる自動デプロイ時に、秘密の金庫から取得した情報に置き換えられます ▼▼▼▼▼
-                const firebaseConfig = {}; 
+                const firebaseConfig = __FIREBASE_CONFIG__; // この目印はデプロイ時に本物の情報に置き換えられます 
                 // ▲▲▲▲▲ ここまで ▲▲▲▲▲
 
                 const app = initializeApp(firebaseConfig);

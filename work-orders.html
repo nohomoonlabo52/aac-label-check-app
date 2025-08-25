@@ -130,7 +130,7 @@
             let materials = [];
 
             try {
-                const firebaseConfig = {}; // この中身はデプロイ時に自動で挿入されます
+                const firebaseConfig = __FIREBASE_CONFIG__; // この目印はデプロイ時に本物の情報に置き換えられます
 
                 const app = initializeApp(firebaseConfig);
                 db = getFirestore(app);

@@ -15,16 +15,11 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - name: Inject Production Firebase Config
-        # 環境変数として秘密の情報を読み込む
-        env:
-          FIREBASE_CONFIG: ${{ secrets.FIREBASE_CONFIG_PRODUCTION }}
         run: |
-          # 全てのHTMLファイルで、目印の行を環境変数の内容に置き換える
+          CONFIG_JSON='${{ secrets.FIREBASE_CONFIG_PRODUCTION }}'
           for file in *.html; do
-            if grep -q "const firebaseConfig = {};" "$file"; then
-              # 特殊文字の問題を避けるため、一時ファイルを経由する
-              echo "const firebaseConfig = ${FIREBASE_CONFIG};" > config.js
-              sed -i -e '/const firebaseConfig = {};/r config.js' -e '/const firebaseConfig = {};/d' "$file"
+            if grep -q "__FIREBASE_CONFIG__" "$file"; then
+              sed -i "s|__FIREBASE_CONFIG__|${CONFIG_JSON}|" "$file"
             fi
           done
       - name: Deploy to Firebase Hosting (Production)
@@ -43,16 +38,11 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - name: Inject Development Firebase Config
-        # 環境変数として秘密の情報を読み込む
-        env:
-          FIREBASE_CONFIG: ${{ secrets.FIREBASE_CONFIG_DEVELOPMENT }}
         run: |
-          # 全てのHTMLファイルで、目印の行を環境変数の内容に置き換える
+          CONFIG_JSON='${{ secrets.FIREBASE_CONFIG_DEVELOPMENT }}'
           for file in *.html; do
-            if grep -q "const firebaseConfig = {};" "$file"; then
-              # 特殊文字の問題を避けるため、一時ファイルを経由する
-              echo "const firebaseConfig = ${FIREBASE_CONFIG};" > config.js
-              sed -i -e '/const firebaseConfig = {};/r config.js' -e '/const firebaseConfig = {};/d' "$file"
+            if grep -q "__FIREBASE_CONFIG__" "$file"; then
+              sed -i "s|__FIREBASE_CONFIG__|${CONFIG_JSON}|" "$file"
             fi
           done
       - name: Deploy to Firebase Hosting (Development)
