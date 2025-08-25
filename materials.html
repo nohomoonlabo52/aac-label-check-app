@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ラベルチェックアプリ 原料マスタ管理 v1.0r1</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            padding: 1rem 1.5rem;
+            border-radius: 0.5rem;
+            color: white;
+            opacity: 0;
+            transition: opacity 0.3s ease-in-out;
+            z-index: 100;
+        }
+        .toast.show { opacity: 1; }
+        .toast.success { background-color: #28a745; }
+        .toast.error { background-color: #dc3545; }
+    </style>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+</head>
+<body class="bg-gray-100">
+
+    <div class="container mx-auto max-w-4xl my-8 p-4 bg-white shadow-lg rounded-lg">
+        <header class="text-center py-4 border-b">
+            <h1 class="text-3xl font-bold text-gray-800">原料マスタ管理</h1>
+            <p id="db-status-indicator" class="text-sm font-semibold mt-1">データベースに接続中...</p>
+        </header>
+
+        <main class="mt-6">
+            <!-- 新規原料追加セクション -->
+            <section id="add-material-section" class="mb-8 p-6 bg-gray-50 rounded-lg border">
+                <h2 class="text-2xl font-semibold text-gray-700 mb-4">新規原料を追加</h2>
+                <form id="add-material-form" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <input type="text" id="materialName" name="name" placeholder="原料名" required class="p-3 border border-gray-300 rounded-lg">
+                    <input type="text" id="materialOrigin" name="origin" placeholder="産地" required class="p-3 border border-gray-300 rounded-lg">
+                    <input type="text" id="materialSupplier" name="supplier" placeholder="仕入先名 (任意)" class="p-3 border border-gray-300 rounded-lg md:col-span-2">
+                    <button type="submit" id="submit-material-btn" class="md:col-span-2 w-full bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-4 rounded-lg transition-colors">
+                        原料を追加する
+                    </button>
+                </form>
+            </section>
+
+            <!-- 原料一覧セクション -->
+            <section>
+                <h2 class="text-2xl font-semibold text-gray-700 mb-4">原料一覧</h2>
+                <div id="loading-indicator" class="text-center py-10">
+                    <p>原料データを読み込んでいます...</p>
+                </div>
+                <div class="overflow-x-auto">
+                    <table id="material-table" class="min-w-full bg-white hidden">
+                        <thead class="bg-gray-200">
+                            <tr>
+                                <th class="py-3 px-4 text-left">原料ID</th>
+                                <th class="py-3 px-4 text-left">原料名</th>
+                                <th class="py-3 px-4 text-left">産地</th>
+                                <th class="py-3 px-4 text-left">仕入先</th>
+                                <th class="py-3 px-4 text-left">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="material-list" class="divide-y divide-gray-200">
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <div id="toast-notification" class="toast"></div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getFirestore, collection, getDocs, addDoc, deleteDoc, doc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            const dbStatusIndicator = document.getElementById('db-status-indicator');
+            const loadingIndicator = document.getElementById('loading-indicator');
+            const materialTable = document.getElementById('material-table');
+            const materialList = document.getElementById('material-list');
+            const addMaterialForm = document.getElementById('add-material-form');
+            const submitMaterialBtn = document.getElementById('submit-material-btn');
+            const toastNotification = document.getElementById('toast-notification');
+
+            let db = null;
+
+            try {
+                // ▼▼▼▼▼ この部分は、GitHub Actionsによる自動デプロイ時に、秘密の金庫から取得した情報に置き換えられます ▼▼▼▼▼
+                const firebaseConfig = {}; 
+                // ▲▲▲▲▲ ここまで ▲▲▲▲▲
+
+                const app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                dbStatusIndicator.textContent = 'データベース接続: 正常';
+                dbStatusIndicator.classList.add('text-green-600');
+                
+                await loadMaterials();
+
+            } catch (e) {
+                console.error("Firebaseの初期化に失敗:", e);
+                dbStatusIndicator.textContent = 'データベース接続: エラー';
+                dbStatusIndicator.classList.add('text-red-600');
+                loadingIndicator.textContent = 'データベースに接続できませんでした。設定情報を確認してください。';
+            }
+
+            function showToast(message, isSuccess = true) {
+                toastNotification.textContent = message;
+                toastNotification.className = `toast show ${isSuccess ? 'success' : 'error'}`;
+                setTimeout(() => { toastNotification.classList.remove('show'); }, 3000);
+            }
+
+            function renderMaterialList(materials) {
+                materialList.innerHTML = '';
+                if (materials.length === 0) {
+                    loadingIndicator.textContent = '原料が登録されていません。';
+                    loadingIndicator.classList.remove('hidden');
+                    materialTable.classList.add('hidden');
+                    return;
+                }
+
+                materials.forEach(material => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td class="py-4 px-4 whitespace-nowrap">${material.id}</td>
+                        <td class="py-4 px-4 whitespace-nowrap font-medium">${material.name}</td>
+                        <td class="py-4 px-4 whitespace-nowrap">${material.origin}</td>
+                        <td class="py-4 px-4 whitespace-nowrap">${material.supplier || ''}</td>
+                        <td class="py-4 px-4 whitespace-nowrap">
+                            <button data-id="${material.docId}" class="delete-btn text-red-500 hover:text-red-700">削除</button>
+                        </td>
+                    `;
+                    materialList.appendChild(tr);
+                });
+
+                loadingIndicator.classList.add('hidden');
+                materialTable.classList.remove('hidden');
+            }
+
+            async function loadMaterials() {
+                try {
+                    loadingIndicator.classList.remove('hidden');
+                    materialTable.classList.add('hidden');
+                    
+                    const querySnapshot = await getDocs(collection(db, "materials"));
+                    const materials = querySnapshot.docs.map(doc => ({ docId: doc.id, ...doc.data() }));
+                    
+                    renderMaterialList(materials);
+                } catch (error) {
+                    console.error("原料データの読み込みに失敗:", error);
+                    showToast("原料データの読み込みに失敗しました。", false);
+                    loadingIndicator.textContent = '原料データの読み込みに失敗しました。';
+                }
+            }
+
+            addMaterialForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                submitMaterialBtn.disabled = true;
+                submitMaterialBtn.textContent = '追加中...';
+
+                try {
+                    // 新しい原料IDを自動採番
+                    const materialsSnapshot = await getDocs(collection(db, "materials"));
+                    const newIdNumber = materialsSnapshot.size + 1;
+                    const newMaterialId = 'm' + String(newIdNumber).padStart(4, '0');
+
+                    const newMaterial = {
+                        id: newMaterialId,
+                        name: document.getElementById('materialName').value,
+                        origin: document.getElementById('materialOrigin').value,
+                        supplier: document.getElementById('materialSupplier').value,
+                    };
+
+                    await addDoc(collection(db, "materials"), newMaterial);
+                    showToast("原料が正常に追加されました。");
+                    addMaterialForm.reset();
+                    await loadMaterials();
+                } catch (error) {
+                    console.error("原料の追加に失敗:", error);
+                    showToast("原料の追加に失敗しました。", false);
+                } finally {
+                    submitMaterialBtn.disabled = false;
+                    submitMaterialBtn.textContent = '原料を追加する';
+                }
+            });
+
+            materialList.addEventListener('click', async (e) => {
+                if (e.target.classList.contains('delete-btn')) {
+                    const docId = e.target.dataset.id;
+                    if (confirm("この原料を本当に削除しますか？")) {
+                        try {
+                            await deleteDoc(doc(db, "materials", docId));
+                            showToast("原料を削除しました。");
+                            await loadMaterials();
+                        } catch (error) {
+                            console.error("原料の削除に失敗:", error);
+                            showToast("原料の削除に失敗しました。", false);
+                        }
+                    }
+                }
+            });
+        });
+    </script>
+</body>
+</html>
