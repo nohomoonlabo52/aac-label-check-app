@@ -15,11 +15,15 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - name: Inject Production Firebase Config
+        # 英語: Inject the Firebase config JSON into each HTML file.
+        # 和訳: Firebaseの設定情報を各HTMLファイルに埋め込みます。
         run: |
           CONFIG_JSON='${{ secrets.FIREBASE_CONFIG_PRODUCTION }}'
           for file in *.html; do
             if grep -q "__FIREBASE_CONFIG__" "$file"; then
-              sed -i "s|__FIREBASE_CONFIG__|${CONFIG_JSON}|g" "$file"
+              # 'sed'の代わりに'awk'を使い、特殊文字を含む変数を安全に置換します。
+              # Using 'awk' instead of 'sed' to safely replace variables containing special characters.
+              awk -v config="${CONFIG_JSON}" '{gsub(/__FIREBASE_CONFIG__/, config)}1' "$file" > "$file.tmp" && mv "$file.tmp" "$file"
             fi
           done
       - name: Deploy to Firebase Hosting (Production)
@@ -38,11 +42,15 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - name: Inject Development Firebase Config
+        # 英語: Inject the Firebase config JSON into each HTML file.
+        # 和訳: Firebaseの設定情報を各HTMLファイルに埋め込みます。
         run: |
           CONFIG_JSON='${{ secrets.FIREBASE_CONFIG_DEVELOPMENT }}'
           for file in *.html; do
             if grep -q "__FIREBASE_CONFIG__" "$file"; then
-              sed -i "s|__FIREBASE_CONFIG__|${CONFIG_JSON}|g" "$file"
+              # 'sed'の代わりに'awk'を使い、特殊文字を含む変数を安全に置換します。
+              # Using 'awk' instead of 'sed' to safely replace variables containing special characters.
+              awk -v config="${CONFIG_JSON}" '{gsub(/__FIREBASE_CONFIG__/, config)}1' "$file" > "$file.tmp" && mv "$file.tmp" "$file"
             fi
           done
       - name: Deploy to Firebase Hosting (Development)
