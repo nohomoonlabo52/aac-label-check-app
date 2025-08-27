@@ -3,53 +3,554 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ラベルチェックアプリ 管理ポータル v1.0r2</title>
+    <title>ラベルチェックアプリ v1.2</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Firebase SDK -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getFirestore, collection, getDocs, doc, getDoc, addDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // --- グローバル変数 ---
+        window.db = null;
+
+        // --- メイン実行関数 ---
+        async function main() {
+            const firebaseConfig = __FIREBASE_CONFIG__;
+            try {
+                const app = initializeApp(firebaseConfig);
+                window.db = getFirestore(app);
+                console.log("Firebase connection successful.");
+                initializeEventListeners();
+                await loadInitialData();
+            } catch (error) {
+                console.error("Firebase initialization failed:", error);
+                document.getElementById('db-status-indicator').textContent = 'データベース接続エラー';
+                document.getElementById('db-status-indicator').classList.add('text-red-600');
+            }
+        }
+        
+        // --- DOM要素取得 ---
+        const pages = {
+            mainMenu: document.getElementById('page-main-menu'),
+            workList: document.getElementById('page-work-list'),
+            labelCheck: document.getElementById('page-label-check'),
+            productMaster: document.getElementById('page-product-master')
+        };
+        const workListContainer = document.getElementById('work-list-container');
+        const currentDateEl = document.getElementById('current-date');
+        const dbStatusIndicator = document.getElementById('db-status-indicator');
+        // Navigation Buttons
+        const goToWorkListBtn = document.getElementById('go-to-work-list-btn');
+        const goToProductMasterBtn = document.getElementById('go-to-product-master-btn');
+        const backBtns = document.querySelectorAll('.back-to-main-menu-btn');
+        // Label Check Page
+        const currentWorkOrderInfo = document.getElementById('current-work-order-info');
+        const productSelector = document.getElementById('productSelector');
+        const mngIdInput = document.getElementById('mngIdInput');
+        const displayProductName = document.getElementById('displayProductName');
+        const displayOrigin = document.getElementById('displayOrigin');
+        const displayJanCode = document.getElementById('displayJanCode');
+        const cameraInput = document.getElementById('cameraInput');
+        const takePictureBtn = document.getElementById('takePictureBtn');
+        const imagePreview = document.getElementById('imagePreview');
+        const imagePlaceholder = document.getElementById('imagePlaceholder');
+        const startCheckBtn = document.getElementById('startCheckBtn');
+        const buttonText = document.getElementById('buttonText');
+        const loadingSpinner = document.getElementById('loadingSpinner');
+        const resultSection = document.getElementById('resultSection');
+        const resultSuccess = document.getElementById('resultSuccess');
+        const resultError = document.getElementById('resultError');
+        const saveStatus = document.getElementById('saveStatus');
+        // Product Master Page
+        const productListContainer = document.getElementById('product-list-container');
+        const addProductForm = document.getElementById('add-product-form');
+        const addProductBtn = document.getElementById('add-product-btn');
+        const addProductStatus = document.getElementById('add-product-status');
+        // Modal
+        const statusModal = document.getElementById('statusModal');
+        const statusLog = document.getElementById('statusLog');
+        const closeModalBtn = document.getElementById('closeModalBtn');
+
+        // --- 状態管理変数 ---
+        let PRODUCTS = [];
+        let WORK_ORDERS = [];
+        let isChecking = false;
+        let currentWorkOrder = null;
+        let currentLogItem = null;
+
+        // --- データ取得 & レンダリング ---
+        async function loadInitialData() {
+            dbStatusIndicator.textContent = 'データベース接続中...';
+            dbStatusIndicator.classList.add('text-yellow-600');
+            try {
+                await Promise.all([fetchProducts(), fetchWorkOrders()]);
+                dbStatusIndicator.textContent = 'データベース接続: 正常';
+                dbStatusIndicator.classList.remove('text-yellow-600');
+                dbStatusIndicator.classList.add('text-green-600');
+                
+                renderWorkList();
+                renderProductList();
+                populateProductSelector();
+                displayCurrentDate();
+                showPage('mainMenu');
+            } catch (error) {
+                console.error("Failed to load initial data:", error);
+                dbStatusIndicator.textContent = 'データ読込エラー';
+                dbStatusIndicator.classList.remove('text-yellow-600');
+                dbStatusIndicator.classList.add('text-red-600');
+            }
+        }
+
+        async function fetchProducts() {
+            const querySnapshot = await getDocs(collection(db, "products"));
+            PRODUCTS = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        }
+
+        async function fetchWorkOrders() {
+            const querySnapshot = await getDocs(collection(db, "orders"));
+            const orders = [];
+            for (const docSnap of querySnapshot.docs) {
+                const order = { id: docSnap.id, ...docSnap.data() };
+                if (order.productRef) {
+                    const productDoc = await getDoc(order.productRef);
+                    if (productDoc.exists()) {
+                        order.product = { id: productDoc.id, ...productDoc.data() };
+                    }
+                }
+                orders.push(order);
+            }
+            WORK_ORDERS = orders;
+        }
+
+        const renderWorkList = () => {
+            workListContainer.innerHTML = '';
+            if (WORK_ORDERS.length === 0) {
+                workListContainer.innerHTML = '<p class="text-gray-500 text-center">作業指示がありません。</p>';
+                return;
+            }
+            WORK_ORDERS.forEach(order => {
+                if (!order.product) return;
+                const statusColor = order.status === '作業中' ? 'bg-yellow-200' : 'bg-gray-200';
+                const item = document.createElement('div');
+                item.className = 'p-4 border rounded-lg shadow-sm cursor-pointer hover:bg-gray-50 transition-colors';
+                item.dataset.orderId = order.id;
+                item.innerHTML = `<div class="flex justify-between items-center"><h3 class="text-lg font-bold text-gray-800">${order.product.name}</h3><span class="px-2 py-1 text-sm font-semibold rounded-full ${statusColor}">${order.status}</span></div><p class="text-gray-600 mt-1">数量: ${order.quantity} ケース</p>`;
+                workListContainer.appendChild(item);
+            });
+        };
+
+        const renderProductList = () => {
+            productListContainer.innerHTML = '';
+            if (PRODUCTS.length === 0) {
+                productListContainer.innerHTML = '<p class="text-gray-500 text-center">商品が登録されていません。</p>';
+                return;
+            }
+            PRODUCTS.forEach(product => {
+                const item = document.createElement('div');
+                item.className = 'p-3 border-b grid grid-cols-4 gap-2 text-sm';
+                item.innerHTML = `<span>${product.mngId}</span><span class="col-span-2">${product.name}</span><span>${product.origin}</span>`;
+                productListContainer.appendChild(item);
+            });
+        };
+        
+        // --- UI更新 & ヘルパー関数 ---
+        const showPage = (pageKey) => {
+            Object.values(pages).forEach(page => page.classList.add('hidden'));
+            pages[pageKey].classList.remove('hidden');
+        };
+
+        const displayCurrentDate = () => {
+            const today = new Date();
+            const options = { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' };
+            currentDateEl.textContent = new Intl.DateTimeFormat('ja-JP-u-ca-japanese', options).format(today);
+        };
+        
+        const populateProductSelector = () => {
+            productSelector.innerHTML = '';
+            PRODUCTS.forEach(product => {
+                const option = document.createElement('option');
+                option.value = product.id;
+                option.textContent = `${product.mngId}: ${product.name}`;
+                productSelector.appendChild(option);
+            });
+        };
+
+        const updateCheckTarget = (productId) => {
+            const selectedProduct = PRODUCTS.find(p => p.id === productId);
+            if (selectedProduct) {
+                displayProductName.textContent = selectedProduct.name;
+                displayOrigin.textContent = selectedProduct.origin;
+                displayJanCode.textContent = selectedProduct.jan;
+                if (document.activeElement !== mngIdInput) { mngIdInput.value = selectedProduct.mngId; }
+            }
+        };
+
+        const resetUIForNextCheck = () => {
+            buttonText.textContent = '判定を開始する';
+            loadingSpinner.classList.add('hidden');
+            startCheckBtn.classList.remove('is-checking');
+            startCheckBtn.classList.add('bg-green-500', 'hover:bg-green-600');
+            isChecking = false;
+            startCheckBtn.disabled = true;
+            imagePreview.src = '';
+            imagePreview.classList.add('hidden');
+            imagePlaceholder.classList.remove('hidden');
+            cameraInput.value = '';
+            takePictureBtn.disabled = false;
+        };
+        
+        const showStatusModal = () => statusModal.classList.remove('hidden');
+        const hideStatusModal = () => statusModal.classList.add('hidden');
+        
+        const logStatus = (message, isFinal = false) => {
+            if (currentLogItem && !isFinal) {
+                currentLogItem.innerHTML += ' <span class="text-green-500 font-semibold">✔️ 完了</span>';
+            }
+            const newItem = document.createElement('li');
+            newItem.textContent = message;
+            statusLog.appendChild(newItem);
+            currentLogItem = newItem;
+        };
+
+        // --- AI解析と判定ロジック ---
+        async function analyzeAndCheckLabel() {
+            if (isChecking) { showStatusModal(); return; }
+            if (!imagePreview.src || !currentWorkOrder) return;
+            
+            isChecking = true;
+            statusLog.innerHTML = '';
+            currentLogItem = null;
+            buttonText.textContent = '判定中...';
+            loadingSpinner.classList.remove('hidden');
+            startCheckBtn.classList.remove('bg-green-500', 'hover:bg-green-600');
+            startCheckBtn.classList.add('is-checking');
+            showStatusModal();
+
+            try {
+                let checkResult = 'NG';
+                const selectedProduct = PRODUCTS.find(p => p.id === productSelector.value);
+                if (!selectedProduct) throw new Error("チェック対象の商品が選択されていません。");
+
+                logStatus('画像の準備をしています...');
+                const base64ImageData = imagePreview.src.split(',')[1];
+                const prompt = "この画像は商品のラベルです。写っている文字をすべて書き出してください。";
+                const payload = { contents: [{ parts: [{ text: prompt }, { inlineData: { mimeType: "image/jpeg", data: base64ImageData } }] }] };
+                
+                logStatus('AIに画像を送信中です...');
+                const apiKey = "__GEMINI_API_KEY__";
+                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${apiKey}`;
+                const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+                
+                logStatus('AIがラベルの文字を解析しています...');
+                if (!response.ok) throw new Error(`APIエラー: ${response.statusText} (${response.status})`);
+                const result = await response.json();
+                const recognizedText = result.candidates?.[0]?.content?.parts?.[0]?.text || '';
+                if (!recognizedText) throw new Error("AIがテキストを認識できませんでした。");
+
+                logStatus('判定結果を比較しています...');
+                const isProductNameOk = recognizedText.includes(selectedProduct.name);
+                const isOriginOk = recognizedText.includes(selectedProduct.origin);
+                const isJanOk = recognizedText.includes(selectedProduct.jan);
+                
+                resultSection.classList.remove('hidden');
+                if (isProductNameOk && isOriginOk && isJanOk) {
+                    resultSuccess.classList.remove('hidden');
+                    resultError.classList.add('hidden');
+                    checkResult = 'OK';
+                } else {
+                    resultError.classList.remove('hidden');
+                    resultSuccess.classList.add('hidden');
+                }
+
+                const wasSaveSuccessful = await saveCheckResult({
+                    workOrderId: currentWorkOrder.id, productId: selectedProduct.id,
+                    productName: selectedProduct.name, result: checkResult,
+                    recognizedText: recognizedText, timestamp: serverTimestamp()
+                });
+
+                saveStatus.textContent = wasSaveSuccessful ? '✓ 結果をデータベースに保存しました。' : '✗ データベースへの保存に失敗しました。';
+                saveStatus.className = `text-center mt-2 font-semibold ${wasSaveSuccessful ? 'text-green-600' : 'text-red-600'}`;
+                
+                logStatus('判定が完了しました。「閉じる」を押してください。', true);
+
+            } catch (error) {
+                console.error("判定処理でエラーが発生しました:", error);
+                resultSection.classList.remove('hidden');
+                resultError.classList.remove('hidden');
+                resultSuccess.classList.add('hidden');
+                saveStatus.textContent = `判定エラー: ${error.message}`;
+                saveStatus.className = 'text-center mt-2 font-semibold text-red-600';
+                if (currentLogItem) currentLogItem.innerHTML += ` <span class="text-red-500 font-semibold">❌ エラー</span>`;
+            } finally {
+                resetUIForNextCheck();
+            }
+        }
+        
+        async function saveCheckResult(checkData) {
+            try {
+                await addDoc(collection(db, "check_logs"), checkData);
+                return true;
+            } catch (error) {
+                console.error("Error saving check log: ", error);
+                return false;
+            }
+        }
+
+        // --- イベントリスナー設定 ---
+        function initializeEventListeners() {
+            // Main Menu Navigation
+            goToWorkListBtn.addEventListener('click', () => showPage('workList'));
+            goToProductMasterBtn.addEventListener('click', async () => {
+                await fetchProducts(); // 最新のリストを表示するために再取得
+                renderProductList();
+                showPage('productMaster');
+            });
+            backBtns.forEach(btn => btn.addEventListener('click', () => showPage('mainMenu')));
+
+            // Work List Page
+            workListContainer.addEventListener('click', (event) => {
+                const item = event.target.closest('[data-order-id]');
+                if (item) {
+                    currentWorkOrder = WORK_ORDERS.find(o => o.id === item.dataset.orderId);
+                    if (currentWorkOrder && currentWorkOrder.product) {
+                        currentWorkOrderInfo.textContent = `${currentWorkOrder.product.name} (${currentWorkOrder.quantity} ケース)`;
+                        productSelector.value = currentWorkOrder.product.id;
+                        updateCheckTarget(currentWorkOrder.product.id);
+                        resultSection.classList.add('hidden');
+                        saveStatus.textContent = '';
+                        resetUIForNextCheck();
+                        showPage('labelCheck');
+                    }
+                }
+            });
+
+            // Label Check Page
+            mngIdInput.addEventListener('input', (event) => {
+                const foundProduct = PRODUCTS.find(p => p.mngId === event.target.value);
+                if (foundProduct) {
+                    productSelector.value = foundProduct.id;
+                    updateCheckTarget(foundProduct.id);
+                    mngIdInput.classList.remove('border-red-500');
+                } else {
+                    mngIdInput.classList.toggle('border-red-500', event.target.value.length > 0);
+                }
+            });
+            productSelector.addEventListener('change', (event) => updateCheckTarget(event.target.value));
+            takePictureBtn.addEventListener('click', () => cameraInput.click());
+            cameraInput.addEventListener('change', (event) => { 
+                const file = event.target.files[0]; 
+                if (file) { 
+                    const reader = new FileReader(); 
+                    reader.onload = (e) => { 
+                        imagePreview.src = e.target.result; 
+                        imagePreview.classList.remove('hidden'); 
+                        imagePlaceholder.classList.add('hidden'); 
+                        startCheckBtn.disabled = false;
+                        takePictureBtn.disabled = true;
+                        resultSection.classList.add('hidden');
+                        saveStatus.textContent = '';
+                        setTimeout(() => startCheckBtn.scrollIntoView({ behavior: 'smooth', block: 'center' }), 100);
+                    }; 
+                    reader.readAsDataURL(file); 
+                } 
+            });
+            startCheckBtn.addEventListener('click', analyzeAndCheckLabel);
+
+            // Product Master Page
+            addProductForm.addEventListener('submit', async (event) => {
+                event.preventDefault();
+                addProductBtn.disabled = true;
+                addProductStatus.textContent = '登録中...';
+                addProductStatus.className = 'text-sm text-yellow-600';
+                
+                const formData = new FormData(addProductForm);
+                const newProduct = {
+                    mngId: formData.get('mngId'),
+                    name: formData.get('name'),
+                    origin: formData.get('origin'),
+                    jan: formData.get('jan'),
+                };
+
+                try {
+                    await addDoc(collection(db, "products"), newProduct);
+                    addProductStatus.textContent = '✓ 登録しました。';
+                    addProductStatus.className = 'text-sm text-green-600';
+                    addProductForm.reset();
+                    await fetchProducts(); // リストを更新
+                    renderProductList();
+                } catch (error) {
+                    console.error("Error adding product:", error);
+                    addProductStatus.textContent = '✗ 登録に失敗しました。';
+                    addProductStatus.className = 'text-sm text-red-600';
+                } finally {
+                    addProductBtn.disabled = false;
+                    setTimeout(() => { addProductStatus.textContent = ''; }, 3000);
+                }
+            });
+
+            // Modal
+            closeModalBtn.addEventListener('click', hideStatusModal);
+        }
+
+        // --- 起動 ---
+        document.addEventListener('DOMContentLoaded', main);
+    </script>
     <style>
         body { font-family: 'Inter', sans-serif; }
+        #cameraInput { display: none; }
+        .spinner { border: 4px solid rgba(255, 255, 255, 0.3); width: 24px; height: 24px; border-radius: 50%; border-left-color: #ffffff; animation: spin 1s ease infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .is-checking { background-color: #9CA3AF; cursor: pointer; }
+        input[type=number]::-webkit-inner-spin-button, 
+        input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+        input[type=number] { -moz-appearance: textfield; }
+        .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(0, 0, 0, 0.5); display: flex; align-items: center; justify-content: center; z-index: 50; }
     </style>
     <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic" crossorigin>
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
 </head>
 <body class="bg-gray-100">
 
-    <div class="container mx-auto max-w-4xl my-8 p-4">
-        <header class="text-center py-6">
-            <h1 class="text-4xl font-bold text-gray-800">管理メニュー</h1>
-            <p class="text-gray-600 mt-2">ようこそ。操作したい項目を選択してください。</p>
-        </header>
+    <div class="container mx-auto max-w-lg bg-white min-h-screen shadow-lg">
+        
+        <!-- メインメニューページ -->
+        <div id="page-main-menu">
+            <header class="text-center py-4 border-b">
+                <h1 class="text-2xl font-bold text-gray-800">メインメニュー</h1>
+                <p id="db-status-indicator" class="text-sm font-semibold mt-1"></p>
+                <p id="current-date" class="text-lg text-gray-600 mt-1"></p>
+            </header>
+            <main class="p-4 mt-8 space-y-4">
+                <button id="go-to-work-list-btn" class="w-full bg-blue-500 hover:bg-blue-600 text-white font-bold py-4 px-4 rounded-lg text-lg transition-colors">
+                    作業指示一覧 / ラベルチェック
+                </button>
+                <button id="go-to-product-master-btn" class="w-full bg-indigo-500 hover:bg-indigo-600 text-white font-bold py-4 px-4 rounded-lg text-lg transition-colors">
+                    商品マスタ管理
+                </button>
+            </main>
+        </div>
+        
+        <!-- 作業指示一覧ページ -->
+        <div id="page-work-list" class="hidden">
+            <header class="text-center py-4 border-b relative">
+                <button class="back-to-main-menu-btn absolute left-4 top-1/2 -translate-y-1/2 text-blue-500 hover:text-blue-700">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path></svg>
+                </button>
+                <h1 class="text-2xl font-bold text-gray-800">作業指示一覧</h1>
+            </header>
+            <main class="p-4">
+                <div id="work-list-container" class="space-y-3"></div>
+            </main>
+        </div>
 
-        <main class="mt-8">
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-
-                <a href="./products.html" class="block p-6 bg-white rounded-lg shadow-md hover:shadow-xl hover:scale-105 transition-transform duration-200">
-                    <div class="flex items-center justify-center h-16 w-16 rounded-full bg-blue-100 text-blue-600 mb-4">
-                        <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A2 2 0 013 12V5a2 2 0 012-2z"></path></svg>
+        <!-- 商品マスタ管理ページ -->
+        <div id="page-product-master" class="hidden">
+            <header class="text-center py-4 border-b relative">
+                <button class="back-to-main-menu-btn absolute left-4 top-1/2 -translate-y-1/2 text-blue-500 hover:text-blue-700">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path></svg>
+                </button>
+                <h1 class="text-2xl font-bold text-gray-800">商品マスタ管理</h1>
+            </header>
+            <main class="p-4">
+                <section class="mb-6">
+                    <h2 class="text-lg font-semibold text-gray-700 mb-2">新規商品を追加</h2>
+                    <form id="add-product-form" class="space-y-3 bg-gray-50 p-4 rounded-lg border">
+                        <input required name="mngId" type="number" placeholder="管理番号 (例: 0001)" class="w-full p-3 border border-gray-300 rounded-lg">
+                        <input required name="name" type="text" placeholder="商品名" class="w-full p-3 border border-gray-300 rounded-lg">
+                        <input required name="origin" type="text" placeholder="産地" class="w-full p-3 border border-gray-300 rounded-lg">
+                        <input required name="jan" type="number" placeholder="JANコード" class="w-full p-3 border border-gray-300 rounded-lg">
+                        <button id="add-product-btn" type="submit" class="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-4 rounded-lg transition-colors disabled:bg-gray-400">
+                            商品を追加する
+                        </button>
+                        <p id="add-product-status" class="text-sm text-center h-4"></p>
+                    </form>
+                </section>
+                <section>
+                    <h2 class="text-lg font-semibold text-gray-700 mb-2">登録済み商品一覧</h2>
+                    <div class="border rounded-lg">
+                        <div class="p-3 bg-gray-100 font-bold grid grid-cols-4 gap-2 text-sm border-b">
+                            <span>管理番号</span>
+                            <span class="col-span-2">商品名</span>
+                            <span>産地</span>
+                        </div>
+                        <div id="product-list-container">
+                            <!-- 商品リストがここに表示されます -->
+                        </div>
                     </div>
-                    <h2 class="text-xl font-bold text-gray-800">商品マスタ管理</h2>
-                    <p class="mt-2 text-gray-600">製品（ラベル）の追加、一覧確認、削除を行います。</p>
-                </a>
+                </section>
+            </main>
+        </div>
 
-                <a href="./materials.html" class="block p-6 bg-white rounded-lg shadow-md hover:shadow-xl hover:scale-105 transition-transform duration-200">
-                    <div class="flex items-center justify-center h-16 w-16 rounded-full bg-green-100 text-green-600 mb-4">
-                        <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>
+        <!-- ラベルチェックページ -->
+        <div id="page-label-check" class="hidden">
+            <header class="text-center py-4 border-b relative">
+                <button class="back-to-main-menu-btn absolute left-4 top-1/2 -translate-y-1/2 text-blue-500 hover:text-blue-700">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path></svg>
+                </button>
+                <h1 class="text-2xl font-bold text-gray-800">ラベルチェック</h1>
+            </header>
+            <main class="p-4 mt-2">
+                <div class="bg-gray-50 p-4 rounded-lg border mb-6">
+                    <p class="text-gray-600">作業対象:</p>
+                    <p id="current-work-order-info" class="font-bold text-xl text-indigo-600"></p>
+                </div>
+                <section class="mb-6">
+                    <h2 class="text-lg font-semibold text-gray-700 mb-2">チェック対象の選択</h2>
+                    <div class="flex items-center space-x-2 mb-3">
+                        <label for="mngIdInput" class="text-gray-600 whitespace-nowrap">管理番号:</label>
+                        <input type="number" id="mngIdInput" placeholder="例: 123" class="w-full p-3 border border-gray-300 rounded-lg">
                     </div>
-                    <h2 class="text-xl font-bold text-gray-800">原料マスタ管理</h2>
-                    <p class="mt-2 text-gray-600">製品の元となる原料の追加、一覧確認、削除を行います。</p>
-                </a>
-
-                <a href="./work-orders.html" class="block p-6 bg-white rounded-lg shadow-md hover:shadow-xl hover:scale-105 transition-transform duration-200">
-                    <div class="flex items-center justify-center h-16 w-16 rounded-full bg-yellow-100 text-yellow-600 mb-4">
-                        <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"></path></svg>
+                    <select id="productSelector" class="w-full p-3 border border-gray-300 rounded-lg bg-white"></select>
+                    <div class="bg-gray-50 p-4 rounded-lg border mt-3">
+                        <p class="text-gray-600">品名: <span id="displayProductName" class="font-bold text-xl text-blue-600"></span></p>
+                        <p class="text-gray-600 mt-1">産地: <span id="displayOrigin" class="font-semibold text-gray-800"></span></p>
+                        <p class="text-gray-600 mt-1">JAN: <span id="displayJanCode" class="font-semibold text-gray-800"></span></p>
                     </div>
-                    <h2 class="text-xl font-bold text-gray-800">作業指示管理</h2>
-                    <p class="mt-2 text-gray-600">日々の作業内容（どの原料でどの製品を作るか）を指示します。</p>
-                </a>
-
-            </div>
-        </main>
+                </section>
+                <section class="mb-6">
+                    <h2 class="text-lg font-semibold text-gray-700 mb-2">ラベル撮影</h2>
+                    <input type="file" accept="image/*" capture="environment" id="cameraInput">
+                    <button id="takePictureBtn" class="w-full bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-4 rounded-lg flex items-center justify-center transition-colors disabled:opacity-50">
+                        <svg class="w-6 h-6 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                        ラベルを撮影する
+                    </button>
+                    <div class="mt-4 border-2 border-dashed border-gray-300 rounded-lg p-4 text-center">
+                        <img id="imagePreview" src="" class="hidden max-w-full mx-auto rounded-md" alt="撮影したラベルのプレビュー">
+                        <p id="imagePlaceholder" class="text-gray-400">ここに撮影した画像が表示されます</p>
+                    </div>
+                </section>
+                <section class="mb-6">
+                     <button id="startCheckBtn" class="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-4 rounded-lg transition-colors disabled:bg-gray-300 flex items-center justify-center" disabled>
+                        <span id="buttonText">判定を開始する</span>
+                        <div id="loadingSpinner" class="spinner hidden ml-2"></div>
+                    </button>
+                </section>
+                <section id="resultSection" class="hidden">
+                    <div id="resultSuccess" class="hidden bg-green-100 border-l-4 border-green-500 text-green-700 p-4 rounded-md" role="alert">
+                        <p class="font-bold text-2xl">一致しました (OK)</p>
+                        <p>ラベルは正しいです。</p>
+                    </div>
+                    <div id="resultError" class="hidden bg-red-100 border-l-4 border-red-500 text-red-700 p-4 rounded-md" role="alert">
+                        <p class="font-bold text-2xl">不一致 (NG)</p>
+                        <p>ラベルが違う可能性があります！</p>
+                    </div>
+                    <p id="saveStatus" class="text-center mt-2 font-semibold"></p>
+                </section>
+            </main>
+        </div>
     </div>
- 
+
+    <!-- 処理状況モーダル -->
+    <div id="statusModal" class="modal-overlay hidden">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-11/12 max-w-md">
+            <h3 class="text-xl font-bold text-center mb-4">処理状況</h3>
+            <ul id="statusLog" class="space-y-2 text-gray-700"></ul>
+            <button id="closeModalBtn" class="mt-6 w-full bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-lg">
+                閉じる
+            </button>
+        </div>
+    </div>
+
 </body>
 </html>
