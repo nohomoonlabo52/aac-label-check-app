@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ラベルチェックアプリ v1.3</title>
+    <title>ラベルチェックアプリ v1.4</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Firebase SDK -->
     <script type="module">
@@ -34,15 +34,18 @@
             mainMenu: document.getElementById('page-main-menu'),
             workList: document.getElementById('page-work-list'),
             labelCheck: document.getElementById('page-label-check'),
-            productMaster: document.getElementById('page-product-master')
+            productMaster: document.getElementById('page-product-master'),
+            materialMaster: document.getElementById('page-material-master')
         };
-        const workListContainer = document.getElementById('work-list-container');
         const currentDateEl = document.getElementById('current-date');
         const dbStatusIndicator = document.getElementById('db-status-indicator');
         // Navigation Buttons
         const goToWorkListBtn = document.getElementById('go-to-work-list-btn');
         const goToProductMasterBtn = document.getElementById('go-to-product-master-btn');
+        const goToMaterialMasterBtn = document.getElementById('go-to-material-master-btn');
         const backBtns = document.querySelectorAll('.back-to-main-menu-btn');
+        // Work List Page
+        const workListContainer = document.getElementById('work-list-container');
         // Label Check Page
         const currentWorkOrderInfo = document.getElementById('current-work-order-info');
         const productSelector = document.getElementById('productSelector');
@@ -66,6 +69,11 @@
         const addProductForm = document.getElementById('add-product-form');
         const addProductBtn = document.getElementById('add-product-btn');
         const addProductStatus = document.getElementById('add-product-status');
+        // Material Master Page
+        const materialListContainer = document.getElementById('material-list-container');
+        const addMaterialForm = document.getElementById('add-material-form');
+        const addMaterialBtn = document.getElementById('add-material-btn');
+        const addMaterialStatus = document.getElementById('add-material-status');
         // Modal
         const statusModal = document.getElementById('statusModal');
         const statusLog = document.getElementById('statusLog');
@@ -73,6 +81,7 @@
 
         // --- 状態管理変数 ---
         let PRODUCTS = [];
+        let MATERIALS = [];
         let WORK_ORDERS = [];
         let isChecking = false;
         let currentWorkOrder = null;
@@ -83,13 +92,14 @@
             dbStatusIndicator.textContent = 'データベース接続中...';
             dbStatusIndicator.classList.add('text-yellow-600');
             try {
-                await Promise.all([fetchProducts(), fetchWorkOrders()]);
+                await Promise.all([fetchProducts(), fetchWorkOrders(), fetchMaterials()]);
                 dbStatusIndicator.textContent = 'データベース接続: 正常';
                 dbStatusIndicator.classList.remove('text-yellow-600');
                 dbStatusIndicator.classList.add('text-green-600');
                 
                 renderWorkList();
                 renderProductList();
+                renderMaterialList();
                 populateProductSelector();
                 displayCurrentDate();
                 showPage('mainMenu');
@@ -104,6 +114,11 @@
         async function fetchProducts() {
             const querySnapshot = await getDocs(collection(db, "products"));
             PRODUCTS = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        }
+
+        async function fetchMaterials() {
+            const querySnapshot = await getDocs(collection(db, "materials"));
+            MATERIALS = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         }
 
         async function fetchWorkOrders() {
@@ -150,6 +165,20 @@
                 item.className = 'p-3 border-b grid grid-cols-4 gap-2 text-sm';
                 item.innerHTML = `<span>${product.mngId}</span><span class="col-span-2">${product.name}</span><span>${product.origin}</span>`;
                 productListContainer.appendChild(item);
+            });
+        };
+
+        const renderMaterialList = () => {
+            materialListContainer.innerHTML = '';
+            if (MATERIALS.length === 0) {
+                materialListContainer.innerHTML = '<p class="text-gray-500 text-center">原料が登録されていません。</p>';
+                return;
+            }
+            MATERIALS.forEach(material => {
+                const item = document.createElement('div');
+                item.className = 'p-3 border-b grid grid-cols-4 gap-2 text-sm';
+                item.innerHTML = `<span>${material.mngId}</span><span class="col-span-2">${material.name}</span><span>${material.supplier}</span>`;
+                materialListContainer.appendChild(item);
             });
         };
         
@@ -308,9 +337,14 @@
             // Main Menu Navigation
             goToWorkListBtn.addEventListener('click', () => showPage('workList'));
             goToProductMasterBtn.addEventListener('click', async () => {
-                await fetchProducts(); // 最新のリストを表示するために再取得
+                await fetchProducts();
                 renderProductList();
                 showPage('productMaster');
+            });
+            goToMaterialMasterBtn.addEventListener('click', async () => {
+                await fetchMaterials();
+                renderMaterialList();
+                showPage('materialMaster');
             });
             backBtns.forEach(btn => btn.addEventListener('click', () => showPage('mainMenu')));
 
@@ -368,30 +402,49 @@
                 event.preventDefault();
                 addProductBtn.disabled = true;
                 addProductStatus.textContent = '登録中...';
-                addProductStatus.className = 'text-sm text-yellow-600';
-                
-                const formData = new FormData(addProductForm);
                 const newProduct = {
-                    mngId: formData.get('mngId'),
-                    name: formData.get('name'),
-                    origin: formData.get('origin'),
-                    jan: formData.get('jan'),
+                    mngId: addProductForm.mngId.value,
+                    name: addProductForm.name.value,
+                    origin: addProductForm.origin.value,
+                    jan: addProductForm.jan.value,
                 };
-
                 try {
                     await addDoc(collection(db, "products"), newProduct);
                     addProductStatus.textContent = '✓ 登録しました。';
-                    addProductStatus.className = 'text-sm text-green-600';
                     addProductForm.reset();
-                    await fetchProducts(); // リストを更新
+                    await fetchProducts();
                     renderProductList();
                 } catch (error) {
                     console.error("Error adding product:", error);
                     addProductStatus.textContent = '✗ 登録に失敗しました。';
-                    addProductStatus.className = 'text-sm text-red-600';
                 } finally {
                     addProductBtn.disabled = false;
                     setTimeout(() => { addProductStatus.textContent = ''; }, 3000);
+                }
+            });
+
+            // Material Master Page
+            addMaterialForm.addEventListener('submit', async (event) => {
+                event.preventDefault();
+                addMaterialBtn.disabled = true;
+                addMaterialStatus.textContent = '登録中...';
+                const newMaterial = {
+                    mngId: addMaterialForm.mngId.value,
+                    name: addMaterialForm.name.value,
+                    supplier: addMaterialForm.supplier.value,
+                };
+                try {
+                    await addDoc(collection(db, "materials"), newMaterial);
+                    addMaterialStatus.textContent = '✓ 登録しました。';
+                    addMaterialForm.reset();
+                    await fetchMaterials();
+                    renderMaterialList();
+                } catch (error) {
+                    console.error("Error adding material:", error);
+                    addMaterialStatus.textContent = '✗ 登録に失敗しました。';
+                } finally {
+                    addMaterialBtn.disabled = false;
+                    setTimeout(() => { addMaterialStatus.textContent = ''; }, 3000);
                 }
             });
 
@@ -434,6 +487,9 @@
                 </button>
                 <button id="go-to-product-master-btn" class="w-full bg-indigo-500 hover:bg-indigo-600 text-white font-bold py-4 px-4 rounded-lg text-lg transition-colors">
                     商品マスタ管理
+                </button>
+                <button id="go-to-material-master-btn" class="w-full bg-purple-500 hover:bg-purple-600 text-white font-bold py-4 px-4 rounded-lg text-lg transition-colors">
+                    原料マスタ管理
                 </button>
             </main>
         </div>
@@ -481,9 +537,42 @@
                             <span class="col-span-2">商品名</span>
                             <span>産地</span>
                         </div>
-                        <div id="product-list-container">
-                            <!-- 商品リストがここに表示されます -->
+                        <div id="product-list-container"></div>
+                    </div>
+                </section>
+            </main>
+        </div>
+
+        <!-- 原料マスタ管理ページ -->
+        <div id="page-material-master" class="hidden">
+            <header class="text-center py-4 border-b relative">
+                <button class="back-to-main-menu-btn absolute left-4 top-1/2 -translate-y-1/2 text-blue-500 hover:text-blue-700">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path></svg>
+                </button>
+                <h1 class="text-2xl font-bold text-gray-800">原料マスタ管理</h1>
+            </header>
+            <main class="p-4">
+                <section class="mb-6">
+                    <h2 class="text-lg font-semibold text-gray-700 mb-2">新規原料を追加</h2>
+                    <form id="add-material-form" class="space-y-3 bg-gray-50 p-4 rounded-lg border">
+                        <input required name="mngId" type="number" placeholder="管理番号" class="w-full p-3 border border-gray-300 rounded-lg">
+                        <input required name="name" type="text" placeholder="原料名" class="w-full p-3 border border-gray-300 rounded-lg">
+                        <input required name="supplier" type="text" placeholder="仕入先" class="w-full p-3 border border-gray-300 rounded-lg">
+                        <button id="add-material-btn" type="submit" class="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-4 rounded-lg transition-colors disabled:bg-gray-400">
+                            原料を追加する
+                        </button>
+                        <p id="add-material-status" class="text-sm text-center h-4"></p>
+                    </form>
+                </section>
+                <section>
+                    <h2 class="text-lg font-semibold text-gray-700 mb-2">登録済み原料一覧</h2>
+                    <div class="border rounded-lg">
+                        <div class="p-3 bg-gray-100 font-bold grid grid-cols-4 gap-2 text-sm border-b">
+                            <span>管理番号</span>
+                            <span class="col-span-2">原料名</span>
+                            <span>仕入先</span>
                         </div>
+                        <div id="material-list-container"></div>
                     </div>
                 </section>
             </main>
