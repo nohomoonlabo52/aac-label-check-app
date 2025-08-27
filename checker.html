@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ラベルチェックアプリ v1.1a</title>
+    <title>ラベルチェックアプリ v1.1b</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Firebase SDK -->
     <script type="module">
@@ -200,17 +200,23 @@
                 if (!recognizedText) { throw new Error("AIがテキストを認識できませんでした。"); }
 
                 logStatus('判定結果を比較しています...');
-                // ★★★★★ 判定ロジックの修正箇所 ★★★★★
-                // AIが認識したテキストに、選択された商品の「品名」「産地」「JANコード」がすべて含まれているかチェックします。
                 const isProductNameOk = recognizedText.includes(selectedProduct.name);
                 const isOriginOk = recognizedText.includes(selectedProduct.origin);
                 const isJanOk = recognizedText.includes(selectedProduct.jan);
                 
                 resultSection.classList.remove('hidden');
+                
+                // ★★★★★ 構文エラーの修正箇所 ★★★★★
+                // ifブロックは必ず'{'で始まり、'}'で閉じる必要があります。
+                // 閉じ忘れると、続くelse文で "Unexpected token" エラーが発生します。
                 if (isProductNameOk && isOriginOk && isJanOk) {
-                    resultSuccess.classList.remove('hidden'); resultError.classList.add('hidden'); checkResult = 'OK';
+                    resultSuccess.classList.remove('hidden');
+                    resultError.classList.add('hidden');
+                    checkResult = 'OK';
                 } else {
-                    resultError.classList.remove('hidden'); resultSuccess.classList.add('hidden');
+                    resultError.classList.remove('hidden');
+                    resultSuccess.classList.add('hidden');
+                    // checkResultは初期値'NG'のまま
                 }
 
                 const wasSaveSuccessful = await saveCheckResult({
