@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ラベルチェックアプリ v1.2</title>
+    <title>ラベルチェックアプリ v1.3</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Firebase SDK -->
     <script type="module">
@@ -268,8 +268,13 @@
                     recognizedText: recognizedText, timestamp: serverTimestamp()
                 });
 
-                saveStatus.textContent = wasSaveSuccessful ? '✓ 結果をデータベースに保存しました。' : '✗ データベースへの保存に失敗しました。';
-                saveStatus.className = `text-center mt-2 font-semibold ${wasSaveSuccessful ? 'text-green-600' : 'text-red-600'}`;
+                if (wasSaveSuccessful) {
+                    saveStatus.textContent = '✓ 結果をデータベースに保存しました。';
+                    saveStatus.className = 'text-center mt-2 font-semibold text-green-600';
+                } else {
+                    saveStatus.textContent = '✗ データベースへの保存に失敗しました。';
+                    saveStatus.className = 'text-center mt-2 font-semibold text-red-600';
+                }
                 
                 logStatus('判定が完了しました。「閉じる」を押してください。', true);
 
@@ -280,7 +285,9 @@
                 resultSuccess.classList.add('hidden');
                 saveStatus.textContent = `判定エラー: ${error.message}`;
                 saveStatus.className = 'text-center mt-2 font-semibold text-red-600';
-                if (currentLogItem) currentLogItem.innerHTML += ` <span class="text-red-500 font-semibold">❌ エラー</span>`;
+                if (currentLogItem) {
+                    currentLogItem.innerHTML += ` <span class="text-red-500 font-semibold">❌ エラー</span>`;
+                }
             } finally {
                 resetUIForNextCheck();
             }
