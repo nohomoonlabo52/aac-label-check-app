@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ラベルチェックアプリ v1.4</title>
+    <title>ラベルチェックアプリ v1.5</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Firebase SDK -->
     <script type="module">
@@ -233,7 +233,7 @@
         
         const logStatus = (message, isFinal = false) => {
             if (currentLogItem && !isFinal) {
-                currentLogItem.innerHTML += ' <span class="text-green-500 font-semibold">✔️ 完了</span>';
+                currentLogItem.innerHTML += ' <span class="text-green-500 font-semibold">[完了]</span>';
             }
             const newItem = document.createElement('li');
             newItem.textContent = message;
@@ -298,10 +298,10 @@
                 });
 
                 if (wasSaveSuccessful) {
-                    saveStatus.textContent = '✓ 結果をデータベースに保存しました。';
+                    saveStatus.textContent = '[OK] 結果をデータベースに保存しました。';
                     saveStatus.className = 'text-center mt-2 font-semibold text-green-600';
                 } else {
-                    saveStatus.textContent = '✗ データベースへの保存に失敗しました。';
+                    saveStatus.textContent = '[NG] データベースへの保存に失敗しました。';
                     saveStatus.className = 'text-center mt-2 font-semibold text-red-600';
                 }
                 
@@ -315,7 +315,7 @@
                 saveStatus.textContent = `判定エラー: ${error.message}`;
                 saveStatus.className = 'text-center mt-2 font-semibold text-red-600';
                 if (currentLogItem) {
-                    currentLogItem.innerHTML += ` <span class="text-red-500 font-semibold">❌ エラー</span>`;
+                    currentLogItem.innerHTML += ` <span class="text-red-500 font-semibold">[エラー]</span>`;
                 }
             } finally {
                 resetUIForNextCheck();
@@ -402,21 +402,24 @@
                 event.preventDefault();
                 addProductBtn.disabled = true;
                 addProductStatus.textContent = '登録中...';
+                
+                const formData = new FormData(addProductForm);
                 const newProduct = {
-                    mngId: addProductForm.mngId.value,
-                    name: addProductForm.name.value,
-                    origin: addProductForm.origin.value,
-                    jan: addProductForm.jan.value,
+                    mngId: formData.get('mngId'),
+                    name: formData.get('name'),
+                    origin: formData.get('origin'),
+                    jan: formData.get('jan'),
                 };
+
                 try {
                     await addDoc(collection(db, "products"), newProduct);
-                    addProductStatus.textContent = '✓ 登録しました。';
+                    addProductStatus.textContent = '[OK] 登録しました。';
                     addProductForm.reset();
                     await fetchProducts();
                     renderProductList();
                 } catch (error) {
                     console.error("Error adding product:", error);
-                    addProductStatus.textContent = '✗ 登録に失敗しました。';
+                    addProductStatus.textContent = '[NG] 登録に失敗しました。';
                 } finally {
                     addProductBtn.disabled = false;
                     setTimeout(() => { addProductStatus.textContent = ''; }, 3000);
@@ -428,20 +431,23 @@
                 event.preventDefault();
                 addMaterialBtn.disabled = true;
                 addMaterialStatus.textContent = '登録中...';
+
+                const formData = new FormData(addMaterialForm);
                 const newMaterial = {
-                    mngId: addMaterialForm.mngId.value,
-                    name: addMaterialForm.name.value,
-                    supplier: addMaterialForm.supplier.value,
+                    mngId: formData.get('mngId'),
+                    name: formData.get('name'),
+                    supplier: formData.get('supplier'),
                 };
+
                 try {
                     await addDoc(collection(db, "materials"), newMaterial);
-                    addMaterialStatus.textContent = '✓ 登録しました。';
+                    addMaterialStatus.textContent = '[OK] 登録しました。';
                     addMaterialForm.reset();
                     await fetchMaterials();
                     renderMaterialList();
                 } catch (error) {
                     console.error("Error adding material:", error);
-                    addMaterialStatus.textContent = '✗ 登録に失敗しました。';
+                    addMaterialStatus.textContent = '[NG] 登録に失敗しました。';
                 } finally {
                     addMaterialBtn.disabled = false;
                     setTimeout(() => { addMaterialStatus.textContent = ''; }, 3000);
