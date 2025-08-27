@@ -26,6 +26,14 @@ jobs:
               awk -v config="${CONFIG_JSON}" '{gsub(/__FIREBASE_CONFIG__/, config)}1' "$file" > "$file.tmp" && mv "$file.tmp" "$file"
             fi
           done
+
+          GEMINI_KEY='${{ secrets.GEMINI_API_KEY }}'
+          for file in *.html; do
+            if grep -q "__GEMINI_API_KEY__" "$file"; then
+              awk -v key="$GEMINI_KEY" '{gsub(/__GEMINI_API_KEY__/, key)}1' "$file" > "$file.tmp" && mv "$file.tmp" "$file"
+            fi
+          done
+
       - name: Deploy to Firebase Hosting (Production)
         uses: FirebaseExtended/action-hosting-deploy@v0
         with:
@@ -53,6 +61,14 @@ jobs:
               awk -v config="${CONFIG_JSON}" '{gsub(/__FIREBASE_CONFIG__/, config)}1' "$file" > "$file.tmp" && mv "$file.tmp" "$file"
             fi
           done
+
+          GEMINI_KEY='${{ secrets.GEMINI_API_KEY }}'
+          for file in *.html; do
+            if grep -q "__GEMINI_API_KEY__" "$file"; then
+              awk -v key="$GEMINI_KEY" '{gsub(/__GEMINI_API_KEY__/, key)}1' "$file" > "$file.tmp" && mv "$file.tmp" "$file"
+            fi
+          done
+          
       - name: Deploy to Firebase Hosting (Development)
         uses: FirebaseExtended/action-hosting-deploy@v0
         with:
