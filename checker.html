@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ラベルチェックアプリ v1.2</title>
+    <title>ラベルチェックアプリ v1.3</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Firebase SDKs -->
     <script src="/__/firebase/10.12.2/firebase-app-compat.js"></script>
@@ -263,22 +263,23 @@
             }
             
             // --- ★★★ 変更点 ★★★ ---
-            // AI解析関数を、安全なCloud Functionを呼び出すように変更
+            // AI解析関数を、詳細なJSONオブジェクトを返すように修正
             async function analyzeLabelWithAI(base64ImageData) {
                 const analyzeLabel = firebase.functions().httpsCallable('analyzeLabel');
                 try {
                     logStatus('AIに画像を送信中です...');
                     const result = await analyzeLabel({ imageData: base64ImageData });
                     logStatus('AIがラベルの文字を解析しています...');
-                    // Cloud Functionからの返り値は result.data の中にあります
-                    const recognizedText = result.data.recognizedText; 
-                    if (!recognizedText) {
-                        throw new Error("AIがテキストを認識できませんでした。");
+                    
+                    // Cloud Functionからの返り値(JSONオブジェクト)をそのまま返す
+                    if (!result.data || !result.data.productName) {
+                        throw new Error("AIが有効なデータを返しませんでした。");
                     }
-                    return recognizedText;
+                    return result.data;
                 } catch (error) {
                     console.error("Cloud Functionの呼び出しに失敗:", error);
-                    throw new Error("AI解析サーバーとの通信に失敗しました。");
+                    const errorMessage = error.message || "AI解析サーバーとの通信に失敗しました。";
+                    throw new Error(errorMessage);
                 }
             }
             // --- ★★★ 変更点ここまで ★★★ ---
@@ -381,17 +382,20 @@
                             if (!selectedProduct) throw new Error("選択された商品が見つかりません。");
 
                             logStatus('画像の準備をしています...');
-                            const base64ImageData = imagePreview.src.split(',')[1];
+                            const base64ImageData = imagePreview.src.split(',[1];
                             
                             // --- ★★★ 変更点 ★★★ ---
-                            // 新しいAI関数を呼び出す
-                            const recognizedText = await analyzeLabelWithAI(base64ImageData);
-                            // --- ★★★ 変更点ここまで ★★★ ---
-
+                            // 新しいAI関数を呼び出し、JSONオブジェクトを受け取る
+                            const extractedData = await analyzeLabelWithAI(base64ImageData);
+                            const recognizedTextForLog = JSON.stringify(extractedData); // ログ保存用に文字列化
+                            
                             logStatus('判定結果を比較しています...');
-                            const isProductNameOk = recognizedText.includes(selectedProduct.name);
-                            const isOriginOk = recognizedText.includes(selectedProduct.origin);
-                            const isJanOk = recognizedText.includes(selectedProduct.jan);
+                            // AIが抽出した各項目を、選択中の商品情報と比較
+                            // ?. と .includes() を使い、AIの認識が不完全でも部分的に一致すればOKとする
+                            const isProductNameOk = extractedData.productName?.includes(selectedProduct.name);
+                            const isOriginOk = extractedData.origin?.includes(selectedProduct.origin);
+                            const isJanOk = extractedData.janCode?.includes(selectedProduct.jan);
+                            // --- ★★★ 変更点ここまで ★★★ ---
                             
                             resultSection.classList.remove('hidden');
                             if (isProductNameOk && isOriginOk && isJanOk) {
@@ -402,7 +406,8 @@
 
                             const wasSaveSuccessful = await saveCheckResult({
                                 workOrderId: currentWorkOrder.orderId, productId: selectedProduct.id,
-                                productName: selectedProduct.name, result: checkResult, recognizedText: recognizedText,
+                                productName: selectedProduct.name, result: checkResult, 
+                                recognizedText: recognizedTextForLog, // ログにはJSON文字列を保存
                             });
 
                             if (wasSaveSuccessful) {
