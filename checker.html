@@ -3,353 +3,16 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ラベルチェックアプリ v1.1b</title>
+    <title>ラベルチェックアプリ v1.2</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Firebase SDK -->
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getFirestore, collection, getDocs, doc, getDoc, addDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+    <!-- Firebase SDKs -->
+    <script src="/__/firebase/10.12.2/firebase-app-compat.js"></script>
+    <script src="/__/firebase/10.12.2/firebase-auth-compat.js"></script>
+    <script src="/__/firebase/10.12.2/firebase-firestore-compat.js"></script>
+    <script src="/__/firebase/10.12.2/firebase-functions-compat.js"></script> <!-- Functions SDK を追加 -->
+    <!-- Firebase Init -->
+    <script src="/__/firebase/init.js"></script>
 
-        // --- グローバル変数 ---
-        window.db = null;
-
-        // --- メイン実行関数 ---
-        async function main() {
-            const firebaseConfig = __FIREBASE_CONFIG__;
-            try {
-                const app = initializeApp(firebaseConfig);
-                window.db = getFirestore(app);
-                console.log("Firebase connection successful.");
-                initializeEventListeners();
-                await loadInitialData();
-            } catch (error) {
-                console.error("Firebase initialization failed:", error);
-                document.getElementById('db-status-indicator').textContent = 'データベース接続エラー';
-                document.getElementById('db-status-indicator').classList.add('text-red-600');
-            }
-        }
-        
-        // --- DOM要素取得 ---
-        const pageWorkList = document.getElementById('page-work-list');
-        const pageLabelCheck = document.getElementById('page-label-check');
-        const workListContainer = document.getElementById('work-list-container');
-        const backToListBtn = document.getElementById('back-to-list-btn');
-        const currentDateEl = document.getElementById('current-date');
-        const dbStatusIndicator = document.getElementById('db-status-indicator');
-        const currentWorkOrderInfo = document.getElementById('current-work-order-info');
-        const productSelector = document.getElementById('productSelector');
-        const mngIdInput = document.getElementById('mngIdInput');
-        const displayProductName = document.getElementById('displayProductName');
-        const displayOrigin = document.getElementById('displayOrigin');
-        const displayJanCode = document.getElementById('displayJanCode');
-        const cameraInput = document.getElementById('cameraInput');
-        const takePictureBtn = document.getElementById('takePictureBtn');
-        const imagePreview = document.getElementById('imagePreview');
-        const imagePlaceholder = document.getElementById('imagePlaceholder');
-        const startCheckSection = document.getElementById('startCheckSection');
-        const startCheckBtn = document.getElementById('startCheckBtn');
-        const buttonText = document.getElementById('buttonText');
-        const loadingSpinner = document.getElementById('loadingSpinner');
-        const resultSection = document.getElementById('resultSection');
-        const resultSuccess = document.getElementById('resultSuccess');
-        const resultError = document.getElementById('resultError');
-        const saveStatus = document.getElementById('saveStatus');
-        const statusModal = document.getElementById('statusModal');
-        const statusLog = document.getElementById('statusLog');
-        const closeModalBtn = document.getElementById('closeModalBtn');
-
-        // --- 状態管理変数 ---
-        let PRODUCTS = [];
-        let WORK_ORDERS = [];
-        let isChecking = false;
-        let currentWorkOrder = null;
-        let currentLogItem = null;
-
-        // --- データ取得関数 ---
-        async function fetchProducts() {
-            const querySnapshot = await getDocs(collection(db, "products"));
-            PRODUCTS = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        }
-
-        async function fetchWorkOrders() {
-            const querySnapshot = await getDocs(collection(db, "orders"));
-            const orders = [];
-            for (const doc of querySnapshot.docs) {
-                const order = { id: doc.id, ...doc.data() };
-                const productDoc = await getDoc(order.productRef);
-                if (productDoc.exists()) {
-                    order.product = { id: productDoc.id, ...productDoc.data() };
-                }
-                orders.push(order);
-            }
-            WORK_ORDERS = orders;
-        }
-
-        // --- UI更新 & ヘルパー関数 ---
-        const showPage = (pageToShow) => {
-            pageWorkList.classList.add('hidden');
-            pageLabelCheck.classList.add('hidden');
-            pageToShow.classList.remove('hidden');
-        };
-
-        const displayCurrentDate = () => {
-            const today = new Date();
-            const options = { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' };
-            currentDateEl.textContent = new Intl.DateTimeFormat('ja-JP-u-ca-japanese', options).format(today);
-        };
-
-        const renderWorkList = () => {
-            workListContainer.innerHTML = '';
-            if (WORK_ORDERS.length === 0) {
-                workListContainer.innerHTML = '<p class="text-gray-500 text-center">作業指示がありません。</p>';
-                return;
-            }
-            WORK_ORDERS.forEach(order => {
-                if (!order.product) return;
-                const statusColor = order.status === '作業中' ? 'bg-yellow-200' : 'bg-gray-200';
-                const item = document.createElement('div');
-                item.className = 'p-4 border rounded-lg shadow-sm cursor-pointer hover:bg-gray-50 transition-colors';
-                item.dataset.orderId = order.id;
-                item.innerHTML = `<div class="flex justify-between items-center"><h3 class="text-lg font-bold text-gray-800">${order.product.name}</h3><span class="px-2 py-1 text-sm font-semibold rounded-full ${statusColor}">${order.status}</span></div><p class="text-gray-600 mt-1">数量: ${order.quantity} ケース</p>`;
-                workListContainer.appendChild(item);
-            });
-        };
-        
-        const populateProductSelector = () => {
-            productSelector.innerHTML = '';
-            PRODUCTS.forEach(product => {
-                const option = document.createElement('option');
-                option.value = product.id;
-                option.textContent = `${product.mngId}: ${product.name}`;
-                productSelector.appendChild(option);
-            });
-        };
-
-        const updateCheckTarget = (productId) => {
-            const selectedProduct = PRODUCTS.find(p => p.id === productId);
-            if (selectedProduct) {
-                displayProductName.textContent = selectedProduct.name;
-                displayOrigin.textContent = selectedProduct.origin;
-                displayJanCode.textContent = selectedProduct.jan;
-                if (document.activeElement !== mngIdInput) { mngIdInput.value = selectedProduct.mngId; }
-            }
-        };
-
-        const resetUIForNextCheck = () => {
-            buttonText.textContent = '判定を開始する';
-            loadingSpinner.classList.add('hidden');
-            startCheckBtn.classList.remove('is-checking');
-            startCheckBtn.classList.add('bg-green-500', 'hover:bg-green-600');
-            isChecking = false;
-            startCheckBtn.disabled = true;
-            imagePreview.src = '';
-            imagePreview.classList.add('hidden');
-            imagePlaceholder.classList.remove('hidden');
-            cameraInput.value = '';
-            takePictureBtn.disabled = false;
-        };
-        
-        const showStatusModal = () => statusModal.classList.remove('hidden');
-        const hideStatusModal = () => statusModal.classList.add('hidden');
-        
-        const logStatus = (message, isFinal = false) => {
-            if (currentLogItem && !isFinal) {
-                currentLogItem.innerHTML += ' <span class="text-green-500 font-semibold">✔️ 完了</span>';
-            }
-            const newItem = document.createElement('li');
-            newItem.textContent = message;
-            statusLog.appendChild(newItem);
-            currentLogItem = newItem;
-        };
-
-        // --- AI解析と判定ロジック ---
-        async function analyzeAndCheckLabel() {
-            if (isChecking) { showStatusModal(); return; }
-            if (!imagePreview.src || !currentWorkOrder) return;
-            
-            isChecking = true;
-            statusLog.innerHTML = '';
-            currentLogItem = null;
-            buttonText.textContent = '判定中...';
-            loadingSpinner.classList.remove('hidden');
-            startCheckBtn.classList.remove('bg-green-500', 'hover:bg-green-600');
-            startCheckBtn.classList.add('is-checking');
-            showStatusModal();
-
-            try {
-                let checkResult = 'NG';
-                
-                const selectedProductId = productSelector.value;
-                const selectedProduct = PRODUCTS.find(p => p.id === selectedProductId);
-                if (!selectedProduct) throw new Error("チェック対象の商品が選択されていません。");
-
-                logStatus('画像の準備をしています...');
-                const base64ImageData = imagePreview.src.split(',')[1];
-                const prompt = "この画像は商品のラベルです。写っている文字をすべて書き出してください。";
-                const payload = { contents: [{ parts: [{ text: prompt }, { inlineData: { mimeType: "image/jpeg", data: base64ImageData } }] }] };
-                
-                logStatus('AIに画像を送信中です...');
-                const apiKey = "__GEMINI_API_KEY__";
-                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${apiKey}`;
-                const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-                
-                logStatus('AIがラベルの文字を解析しています...');
-                if (!response.ok) { throw new Error(`APIエラー: ${response.statusText} (${response.status})`); }
-                const result = await response.json();
-                const recognizedText = result.candidates?.[0]?.content?.parts?.[0]?.text || '';
-                if (!recognizedText) { throw new Error("AIがテキストを認識できませんでした。"); }
-
-                logStatus('判定結果を比較しています...');
-                const isProductNameOk = recognizedText.includes(selectedProduct.name);
-                const isOriginOk = recognizedText.includes(selectedProduct.origin);
-                const isJanOk = recognizedText.includes(selectedProduct.jan);
-                
-                resultSection.classList.remove('hidden');
-                
-                // ★★★★★ 構文エラーの修正箇所 ★★★★★
-                // ifブロックは必ず'{'で始まり、'}'で閉じる必要があります。
-                // 閉じ忘れると、続くelse文で "Unexpected token" エラーが発生します。
-                if (isProductNameOk && isOriginOk && isJanOk) {
-                    resultSuccess.classList.remove('hidden');
-                    resultError.classList.add('hidden');
-                    checkResult = 'OK';
-                } else {
-                    resultError.classList.remove('hidden');
-                    resultSuccess.classList.add('hidden');
-                    // checkResultは初期値'NG'のまま
-                }
-
-                const wasSaveSuccessful = await saveCheckResult({
-                    workOrderId: currentWorkOrder.id,
-                    productId: selectedProduct.id,
-                    productName: selectedProduct.name,
-                    result: checkResult,
-                    recognizedText: recognizedText,
-                    timestamp: serverTimestamp()
-                });
-
-                if (wasSaveSuccessful) {
-                    saveStatus.textContent = '✓ 結果をデータベースに保存しました。';
-                    saveStatus.className = 'text-center mt-2 font-semibold text-green-600';
-                } else {
-                    saveStatus.textContent = '✗ データベースへの保存に失敗しました。';
-                    saveStatus.className = 'text-center mt-2 font-semibold text-red-600';
-                }
-                
-                logStatus('判定が完了しました。「閉じる」を押してください。', true);
-
-            } catch (error) {
-                console.error("判定処理でエラーが発生しました:", error);
-                resultError.classList.remove('hidden');
-                resultSuccess.classList.add('hidden');
-                saveStatus.textContent = `判定エラー: ${error.message}`;
-                saveStatus.className = 'text-center mt-2 font-semibold text-red-600';
-                if (currentLogItem) {
-                    currentLogItem.innerHTML += ` <span class="text-red-500 font-semibold">❌ エラー</span>`;
-                }
-            } finally {
-                resetUIForNextCheck();
-            }
-        }
-        
-        async function saveCheckResult(checkData) {
-            try {
-                await addDoc(collection(db, "check_logs"), checkData);
-                console.log("Check log saved successfully.");
-                return true;
-            } catch (error) {
-                console.error("Error saving check log: ", error);
-                return false;
-            }
-        }
-
-        // --- イベントリスナー設定 ---
-        function initializeEventListeners() {
-            workListContainer.addEventListener('click', (event) => {
-                const item = event.target.closest('[data-order-id]');
-                if (item) {
-                    currentWorkOrder = WORK_ORDERS.find(o => o.id === item.dataset.orderId);
-                    if (currentWorkOrder) {
-                        const product = currentWorkOrder.product;
-                        if (!product) { console.error("作業指示に対応する商品が見つかりません:", currentWorkOrder); return; }
-                        currentWorkOrderInfo.textContent = `${product.name} (${currentWorkOrder.quantity} ケース)`;
-                        productSelector.value = product.id;
-                        updateCheckTarget(product.id);
-                        resultSection.classList.add('hidden');
-                        saveStatus.textContent = '';
-                        resetUIForNextCheck();
-                        showPage(pageLabelCheck);
-                    }
-                }
-            });
-
-            backToListBtn.addEventListener('click', () => { showPage(pageWorkList); currentWorkOrder = null; });
-            
-            mngIdInput.addEventListener('input', (event) => {
-                const value = event.target.value;
-                const foundProduct = PRODUCTS.find(p => p.mngId === value);
-                if (foundProduct) {
-                    productSelector.value = foundProduct.id;
-                    updateCheckTarget(foundProduct.id);
-                    mngIdInput.classList.remove('border-red-500');
-                } else {
-                    if (value.length > 0) mngIdInput.classList.add('border-red-500');
-                    else mngIdInput.classList.remove('border-red-500');
-                }
-            });
-
-            productSelector.addEventListener('change', (event) => { updateCheckTarget(event.target.value); });
-            takePictureBtn.addEventListener('click', () => { cameraInput.click(); });
-            
-            cameraInput.addEventListener('change', (event) => { 
-                const file = event.target.files[0]; 
-                if (file) { 
-                    const reader = new FileReader(); 
-                    reader.onload = (e) => { 
-                        imagePreview.src = e.target.result; 
-                        imagePreview.classList.remove('hidden'); 
-                        imagePlaceholder.classList.add('hidden'); 
-                        startCheckBtn.disabled = false;
-                        takePictureBtn.disabled = true;
-                        resultSection.classList.add('hidden');
-                        saveStatus.textContent = '';
-                        setTimeout(() => {
-                            startCheckSection.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                        }, 100);
-                    }; 
-                    reader.readAsDataURL(file); 
-                } 
-            });
-
-            closeModalBtn.addEventListener('click', hideStatusModal);
-            startCheckBtn.addEventListener('click', analyzeAndCheckLabel);
-        }
-
-        // --- アプリケーションの初期化 ---
-        async function loadInitialData() {
-            dbStatusIndicator.textContent = 'データベース接続中...';
-            dbStatusIndicator.classList.add('text-yellow-600');
-            try {
-                await Promise.all([fetchProducts(), fetchWorkOrders()]);
-                dbStatusIndicator.textContent = 'データベース接続: 正常';
-                dbStatusIndicator.classList.remove('text-yellow-600');
-                dbStatusIndicator.classList.add('text-green-600');
-                
-                populateProductSelector();
-                renderWorkList();
-                displayCurrentDate();
-                showPage(pageWorkList);
-            } catch (error) {
-                console.error("Failed to load initial data:", error);
-                dbStatusIndicator.textContent = 'データ読込エラー';
-                dbStatusIndicator.classList.remove('text-yellow-600');
-                dbStatusIndicator.classList.add('text-red-600');
-            }
-        }
-
-        // --- 起動 ---
-        document.addEventListener('DOMContentLoaded', main);
-    </script>
     <style>
         body { font-family: 'Inter', sans-serif; }
         #cameraInput { display: none; }
@@ -369,7 +32,6 @@
 
     <div class="container mx-auto max-w-lg bg-white min-h-screen shadow-lg">
         
-        <!-- 作業指示一覧ページ -->
         <div id="page-work-list">
             <header class="text-center py-4 border-b">
                 <h1 class="text-2xl font-bold text-gray-800">作業指示一覧</h1>
@@ -377,11 +39,13 @@
                 <p id="current-date" class="text-lg text-gray-600 mt-1"></p>
             </header>
             <main class="p-4">
-                <div id="work-list-container" class="space-y-3"></div>
+                <div id="loading-indicator" class="text-center py-10">
+                    <p>データを読み込んでいます...</p>
+                </div>
+                <div id="work-list-container" class="space-y-3 hidden"></div>
             </main>
         </div>
 
-        <!-- ラベルチェックページ -->
         <div id="page-label-check" class="hidden">
             <header class="text-center py-4 border-b relative">
                 <button id="back-to-list-btn" class="absolute left-4 top-1/2 -translate-y-1/2 text-blue-500 hover:text-blue-700">
@@ -442,7 +106,6 @@
         </div>
     </div>
 
-    <!-- 処理状況モーダル -->
     <div id="statusModal" class="modal-overlay hidden">
         <div class="bg-white rounded-lg shadow-xl p-6 w-11/12 max-w-md">
             <h3 class="text-xl font-bold text-center mb-4">処理状況</h3>
@@ -453,5 +116,327 @@
         </div>
     </div>
 
+    <script type="module">
+        // Firebaseの初期化はheadタグ内の /__/firebase/init.js で自動的に行われます
+        
+        document.addEventListener('DOMContentLoaded', () => {
+            const pageWorkList = document.getElementById('page-work-list');
+            const pageLabelCheck = document.getElementById('page-label-check');
+            const workListContainer = document.getElementById('work-list-container');
+            const loadingIndicator = document.getElementById('loading-indicator');
+            const backToListBtn = document.getElementById('back-to-list-btn');
+            const currentDateEl = document.getElementById('current-date');
+            const dbStatusIndicator = document.getElementById('db-status-indicator');
+            const currentWorkOrderInfo = document.getElementById('current-work-order-info');
+            const productSelector = document.getElementById('productSelector');
+            const mngIdInput = document.getElementById('mngIdInput');
+            const displayProductName = document.getElementById('displayProductName');
+            const displayOrigin = document.getElementById('displayOrigin');
+            const displayJanCode = document.getElementById('displayJanCode');
+            const cameraInput = document.getElementById('cameraInput');
+            const takePictureBtn = document.getElementById('takePictureBtn');
+            const imagePreview = document.getElementById('imagePreview');
+            const imagePlaceholder = document.getElementById('imagePlaceholder');
+            const startCheckSection = document.getElementById('startCheckSection');
+            const startCheckBtn = document.getElementById('startCheckBtn');
+            const buttonText = document.getElementById('buttonText');
+            const loadingSpinner = document.getElementById('loadingSpinner');
+            const resultSection = document.getElementById('resultSection');
+            const resultSuccess = document.getElementById('resultSuccess');
+            const resultError = document.getElementById('resultError');
+            const saveStatus = document.getElementById('saveStatus');
+            const statusModal = document.getElementById('statusModal');
+            const statusLog = document.getElementById('statusLog');
+            const closeModalBtn = document.getElementById('closeModalBtn');
+
+            let isChecking = false;
+            let currentWorkOrder = null;
+            let currentLogItem = null;
+            let userId = null;
+            let db = null;
+            let auth = null;
+            let PRODUCTS = [];
+            let WORK_ORDERS = [];
+
+            const showPage = (pageToShow) => { pageWorkList.classList.add('hidden'); pageLabelCheck.classList.add('hidden'); pageToShow.classList.remove('hidden'); };
+            const displayCurrentDate = () => {
+                const today = new Date();
+                const options = { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' };
+                currentDateEl.textContent = new Intl.DateTimeFormat('ja-JP-u-ca-japanese', options).format(today);
+            };
+
+            const renderWorkList = () => {
+                workListContainer.innerHTML = '';
+                if (WORK_ORDERS.length === 0) return;
+
+                WORK_ORDERS.forEach(order => {
+                    const product = PRODUCTS.find(p => p.id === order.productId);
+                    if (!product) {
+                        console.warn(`作業指示(ID: ${order.orderId})に対応する商品(ID: ${order.productId})が見つかりません。`);
+                        return;
+                    }
+                    const statusColor = order.status === '作業中' ? 'bg-yellow-200' : 'bg-gray-200';
+                    const item = document.createElement('div');
+                    item.className = 'p-4 border rounded-lg shadow-sm cursor-pointer hover:bg-gray-50 transition-colors';
+                    item.dataset.orderId = order.orderId;
+                    item.innerHTML = `<div class="flex justify-between items-center"><h3 class="text-lg font-bold text-gray-800">${product.name}</h3><span class="px-2 py-1 text-sm font-semibold rounded-full ${statusColor}">${order.status}</span></div><p class="text-gray-600 mt-1">数量: ${order.caseQuantity} ケース</p>`;
+                    workListContainer.appendChild(item);
+                });
+            };
+
+            const populateProductSelector = () => {
+                productSelector.innerHTML = '';
+                PRODUCTS.forEach(product => {
+                    const option = document.createElement('option');
+                    option.value = product.id;
+                    option.textContent = `${product.mngId}: ${product.name}`;
+                    productSelector.appendChild(option);
+                });
+            };
+
+            const updateCheckTarget = (productId) => {
+                const selectedProduct = PRODUCTS.find(p => p.id === productId);
+                if (selectedProduct) {
+                    displayProductName.textContent = selectedProduct.name;
+                    displayOrigin.textContent = selectedProduct.origin;
+                    displayJanCode.textContent = selectedProduct.jan;
+                    if (document.activeElement !== mngIdInput) { mngIdInput.value = selectedProduct.mngId; }
+                }
+            };
+
+            const resetUIForNextCheck = () => {
+                try {
+                    buttonText.textContent = '判定を開始する';
+                    loadingSpinner.classList.add('hidden');
+                    startCheckBtn.classList.remove('is-checking');
+                    startCheckBtn.classList.add('bg-green-500', 'hover:bg-green-600');
+                    isChecking = false;
+                    startCheckBtn.disabled = true;
+                    imagePreview.src = '';
+                    imagePreview.classList.add('hidden');
+                    imagePlaceholder.classList.remove('hidden');
+                    cameraInput.value = '';
+                    takePictureBtn.disabled = false;
+                } catch (e) { console.error("UIのリセット中にエラーが発生しました:", e); }
+            };
+            
+            const showStatusModal = () => statusModal.classList.remove('hidden');
+            const hideStatusModal = () => statusModal.classList.add('hidden');
+            const logStatus = (message, isFinal = false) => {
+                if (currentLogItem && !isFinal) {
+                    currentLogItem.innerHTML += ' <span class="text-green-500 font-semibold">✔️ 完了</span>';
+                }
+                const newItem = document.createElement('li');
+                newItem.textContent = message;
+                statusLog.appendChild(newItem);
+                currentLogItem = newItem;
+            };
+
+            async function loadDataFromFirestore() {
+                try {
+                    loadingIndicator.classList.remove('hidden');
+                    workListContainer.classList.add('hidden');
+                    
+                    const productsSnapshot = await firebase.firestore().collection("products").get();
+                    PRODUCTS = productsSnapshot.docs.map(doc => ({ docId: doc.id, ...doc.data() }));
+                    
+                    const workOrdersSnapshot = await firebase.firestore().collection("work_orders").get();
+                    WORK_ORDERS = workOrdersSnapshot.docs.map(doc => ({ docId: doc.id, ...doc.data() }));
+
+                    if (WORK_ORDERS.length === 0) {
+                        loadingIndicator.textContent = '作業指示がありません。';
+                    } else {
+                        loadingIndicator.classList.add('hidden');
+                        workListContainer.classList.remove('hidden');
+                    }
+
+                    populateProductSelector();
+                    renderWorkList();
+                    displayCurrentDate();
+                    showPage(pageWorkList);
+
+                } catch(error) {
+                    console.error("Firestoreからのデータ読み込みエラー:", error);
+                    loadingIndicator.textContent = 'データの読み込みに失敗しました。';
+                    throw error;
+                }
+            }
+            
+            // --- ★★★ 変更点 ★★★ ---
+            // AI解析関数を、安全なCloud Functionを呼び出すように変更
+            async function analyzeLabelWithAI(base64ImageData) {
+                const analyzeLabel = firebase.functions().httpsCallable('analyzeLabel');
+                try {
+                    logStatus('AIに画像を送信中です...');
+                    const result = await analyzeLabel({ imageData: base64ImageData });
+                    logStatus('AIがラベルの文字を解析しています...');
+                    // Cloud Functionからの返り値は result.data の中にあります
+                    const recognizedText = result.data.recognizedText; 
+                    if (!recognizedText) {
+                        throw new Error("AIがテキストを認識できませんでした。");
+                    }
+                    return recognizedText;
+                } catch (error) {
+                    console.error("Cloud Functionの呼び出しに失敗:", error);
+                    throw new Error("AI解析サーバーとの通信に失敗しました。");
+                }
+            }
+            // --- ★★★ 変更点ここまで ★★★ ---
+
+            async function main() {
+                try {
+                    db = firebase.firestore();
+                    auth = firebase.auth();
+                    
+                    dbStatusIndicator.textContent = 'データベース接続: 正常';
+                    dbStatusIndicator.classList.add('text-green-600');
+                    
+                    await auth.signInAnonymously();
+                    auth.onAuthStateChanged(user => { if (user) { userId = user.uid; } });
+
+                    await loadDataFromFirestore();
+
+                    workListContainer.addEventListener('click', (event) => {
+                        const item = event.target.closest('[data-order-id]');
+                        if (item) {
+                            currentWorkOrder = WORK_ORDERS.find(o => o.orderId === item.dataset.orderId);
+                            if (currentWorkOrder) {
+                                const product = PRODUCTS.find(p => p.id === currentWorkOrder.productId);
+                                if (!product) { alert("エラー: 作業指示に対応する商品が見つかりません。"); return; }
+                                currentWorkOrderInfo.textContent = `${product.name} (${currentWorkOrder.caseQuantity} ケース)`;
+                                productSelector.value = currentWorkOrder.productId;
+                                updateCheckTarget(currentWorkOrder.productId);
+                                resultSection.classList.add('hidden');
+                                saveStatus.textContent = '';
+                                imagePreview.src = '';
+                                imagePreview.classList.add('hidden');
+                                imagePlaceholder.classList.remove('hidden');
+                                startCheckBtn.disabled = true;
+                                takePictureBtn.disabled = false;
+                                showPage(pageLabelCheck);
+                            }
+                        }
+                    });
+
+                    backToListBtn.addEventListener('click', () => { showPage(pageWorkList); currentWorkOrder = null; });
+                    mngIdInput.addEventListener('input', (event) => {
+                        let value = event.target.value;
+                        if (value.length >= 3) {
+                            const paddedId = value.padStart(4, '0');
+                            const foundProduct = PRODUCTS.find(p => p.mngId === paddedId);
+                            if (foundProduct) { productSelector.value = foundProduct.id; updateCheckTarget(foundProduct.id); mngIdInput.classList.remove('border-red-500'); } 
+                            else { mngIdInput.classList.add('border-red-500'); }
+                        } else { mngIdInput.classList.remove('border-red-500'); }
+                    });
+                    productSelector.addEventListener('change', (event) => { updateCheckTarget(event.target.value); });
+                    takePictureBtn.addEventListener('click', () => { cameraInput.click(); });
+                    
+                    cameraInput.addEventListener('change', (event) => { 
+                        const file = event.target.files[0]; 
+                        if (file) { 
+                            const reader = new FileReader(); 
+                            reader.onload = (e) => { 
+                                imagePreview.src = e.target.result; 
+                                imagePreview.classList.remove('hidden'); 
+                                imagePlaceholder.classList.add('hidden'); 
+                                startCheckBtn.disabled = false;
+                                takePictureBtn.disabled = true;
+                                resultSection.classList.add('hidden');
+                                saveStatus.textContent = '';
+                                setTimeout(() => { startCheckSection.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 100);
+                            }; 
+                            reader.readAsDataURL(file); 
+                        } 
+                    });
+                    closeModalBtn.addEventListener('click', hideStatusModal);
+
+                    const saveCheckResult = async (checkData) => {
+                        try {
+                            await db.collection("check_logs").add({ ...checkData, checkedAt: firebase.firestore.FieldValue.serverTimestamp(), userId: userId });
+                            return true;
+                        } catch (error) {
+                            console.error("Firestoreへのチェック結果の保存に失敗しました:", error);
+                            return false;
+                        }
+                    };
+
+                    startCheckBtn.addEventListener('click', async () => {
+                        if (isChecking) { showStatusModal(); return; }
+                        if (!imagePreview.src || !currentWorkOrder) return;
+                        
+                        isChecking = true;
+                        statusLog.innerHTML = '';
+                        currentLogItem = null;
+                        buttonText.textContent = '判定中...';
+                        loadingSpinner.classList.remove('hidden');
+                        startCheckBtn.classList.remove('bg-green-500', 'hover:bg-green-600');
+                        startCheckBtn.classList.add('is-checking');
+                        showStatusModal();
+
+                        try {
+                            let checkResult = 'NG';
+                            
+                            const selectedProductId = productSelector.value;
+                            const selectedProduct = PRODUCTS.find(p => p.id === selectedProductId);
+                            if (!selectedProduct) throw new Error("選択された商品が見つかりません。");
+
+                            logStatus('画像の準備をしています...');
+                            const base64ImageData = imagePreview.src.split(',')[1];
+                            
+                            // --- ★★★ 変更点 ★★★ ---
+                            // 新しいAI関数を呼び出す
+                            const recognizedText = await analyzeLabelWithAI(base64ImageData);
+                            // --- ★★★ 変更点ここまで ★★★ ---
+
+                            logStatus('判定結果を比較しています...');
+                            const isProductNameOk = recognizedText.includes(selectedProduct.name);
+                            const isOriginOk = recognizedText.includes(selectedProduct.origin);
+                            const isJanOk = recognizedText.includes(selectedProduct.jan);
+                            
+                            resultSection.classList.remove('hidden');
+                            if (isProductNameOk && isOriginOk && isJanOk) {
+                                resultSuccess.classList.remove('hidden'); resultError.classList.add('hidden'); checkResult = 'OK';
+                            } else {
+                                resultError.classList.remove('hidden'); resultSuccess.classList.add('hidden');
+                            }
+
+                            const wasSaveSuccessful = await saveCheckResult({
+                                workOrderId: currentWorkOrder.orderId, productId: selectedProduct.id,
+                                productName: selectedProduct.name, result: checkResult, recognizedText: recognizedText,
+                            });
+
+                            if (wasSaveSuccessful) {
+                                saveStatus.textContent = '✓ 結果をデータベースに保存しました。';
+                                saveStatus.className = 'text-center mt-2 font-semibold text-green-600';
+                            } else {
+                                saveStatus.textContent = '✗ 結果のデータベースへの保存に失敗しました。';
+                                saveStatus.className = 'text-center mt-2 font-semibold text-red-600';
+                            }
+                            
+                            logStatus('判定が完了しました。「閉じる」を押してください。', true);
+
+                        } catch (error) {
+                            console.error("判定処理でエラーが発生しました:", error);
+                            resultError.classList.remove('hidden');
+                            resultSuccess.classList.add('hidden');
+                            saveStatus.textContent = `判定エラー: ${error.message}`;
+                            saveStatus.className = 'text-center mt-2 font-semibold text-red-600';
+                            if (currentLogItem) { currentLogItem.innerHTML += ` <span class="text-red-500 font-semibold">❌ エラー</span>`; }
+                        } finally {
+                            resetUIForNextCheck();
+                        }
+                    });
+
+                } catch (e) {
+                    console.error("Firebaseの初期化またはデータ読み込みに失敗:", e);
+                    dbStatusIndicator.textContent = 'データベース接続: エラー';
+                    dbStatusIndicator.classList.add('text-red-600');
+                    loadingIndicator.textContent = `データベースに接続できませんでした: ${e.message}`;
+                }
+            }
+            
+            main();
+        });
+    </script>
 </body>
 </html>
