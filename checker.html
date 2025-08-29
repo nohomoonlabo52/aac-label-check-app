@@ -3,13 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ラベルチェックアプリ v1.3</title>
+    <title>ラベルチェックアプリ v1.4</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Firebase SDKs -->
     <script src="/__/firebase/10.12.2/firebase-app-compat.js"></script>
     <script src="/__/firebase/10.12.2/firebase-auth-compat.js"></script>
     <script src="/__/firebase/10.12.2/firebase-firestore-compat.js"></script>
-    <script src="/__/firebase/10.12.2/firebase-functions-compat.js"></script> <!-- Functions SDK を追加 -->
+    <script src="/__/firebase/10.12.2/firebase-functions-compat.js"></script>
     <!-- Firebase Init -->
     <script src="/__/firebase/init.js"></script>
 
@@ -381,12 +381,36 @@
                             const base64ImageData = imagePreview.src.split(',')[1];
                             
                             const extractedData = await analyzeLabelWithAI(base64ImageData);
-                            const recognizedTextForLog = JSON.stringify(extractedData);
                             
+                            // --- ★★★ 変更点 ★★★ ---
+                            // 判定ロジックをここに移動し、コンソールにデバッグ情報を表示
                             logStatus('判定結果を比較しています...');
-                            const isProductNameOk = extractedData.productName?.includes(selectedProduct.name);
-                            const isOriginOk = extractedData.origin?.includes(selectedProduct.origin);
-                            const isJanOk = extractedData.janCode?.includes(selectedProduct.jan);
+
+                            // AIの認識結果から改行やスペースを削除して比較しやすくする
+                            const cleanText = (str) => str?.replace(/(\r\n|\n|\r|\s)/gm, "") || "";
+
+                            const recognizedName = cleanText(extractedData.productName);
+                            const recognizedOrigin = cleanText(extractedData.origin);
+                            const recognizedJan = cleanText(extractedData.janCode);
+
+                            const dbName = cleanText(selectedProduct.name);
+                            const dbOrigin = cleanText(selectedProduct.origin);
+                            const dbJan = cleanText(selectedProduct.jan);
+
+                            // コンソールに比較情報を表示
+                            console.log("--- 判定デバッグ情報 ---");
+                            console.log(`[品名] DB: "${dbName}" vs AI: "${recognizedName}"`);
+                            console.log(`[産地] DB: "${dbOrigin}" vs AI: "${recognizedOrigin}"`);
+                            console.log(`[JAN]  DB: "${dbJan}" vs AI: "${recognizedJan}"`);
+
+                            // 判定ロジックを「部分一致」に変更
+                            const isProductNameOk = recognizedName.includes(dbName);
+                            const isOriginOk = recognizedOrigin.includes(dbOrigin);
+                            const isJanOk = recognizedJan.includes(dbJan);
+
+                            console.log(`品名一致: ${isProductNameOk}, 産地一致: ${isOriginOk}, JAN一致: ${isJanOk}`);
+                            console.log("----------------------");
+                            // --- ★★★ 変更点ここまで ★★★ ---
                             
                             resultSection.classList.remove('hidden');
                             if (isProductNameOk && isOriginOk && isJanOk) {
@@ -398,7 +422,7 @@
                             const wasSaveSuccessful = await saveCheckResult({
                                 workOrderId: currentWorkOrder.orderId, productId: selectedProduct.id,
                                 productName: selectedProduct.name, result: checkResult, 
-                                recognizedText: recognizedTextForLog,
+                                recognizedText: JSON.stringify(extractedData), // ログには元のJSONを保存
                             });
 
                             if (wasSaveSuccessful) {
