@@ -1,65 +1,57 @@
-// Firebase Admin SDK（お世話役）をインポートして初期化
-const admin = require("firebase-admin");
-admin.initializeApp();
+    const functions = require("firebase-functions");
+    const admin = require("firebase-admin");
+    const { GoogleGenerativeAI } = require("@google/generative-ai");
 
-// Firebase Cloud Functionsのライブラリをインポート
-const functions = require("firebase-functions");
-// GoogleのAIライブラリをインポート
-const { GoogleGenerativeAI } = require("@google/generative-ai");
+    admin.initializeApp();
 
-// Gemini APIキーをFirebaseの環境変数から安全に取得
-const geminiApiKey = functions.config().gemini.key;
-// AIモデルを初期化
-const genAI = new GoogleGenerativeAI(geminiApiKey);
-const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    // ★★★ 変更点 ★★★
+    // AIへの指示（プロンプト）を、より詳細で具体的な内容に変更
+    const SYSTEM_PROMPT = `あなたは日本の食品表示ラベルを読み取る専門家です。
+    画像から以下の情報を抽出し、JSON形式で返してください。
+    - productName: 商品名
+    - origin: 産地
+    - janCode: 13桁のJANコード。バーコードの下にある数字を正確に読み取ってください。数字以外の文字は含めないでください。
+    - mngId: 「管理番号」やそれに類する項目があればその値。なければnull。
+    もし情報が読み取れない場合は、該当するキーの値をnullにしてください。`;
+    
+    // APIキーを環境変数から取得
+    const geminiApiKey = functions.config().gemini.key;
+    if (!geminiApiKey) {
+        console.error("Gemini APIキーが設定されていません。");
+    }
+    const genAI = new GoogleGenerativeAI(geminiApiKey);
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
-// 'analyzeLabel'という名前でCloud Functionを定義
-exports.analyzeLabel = functions.https.onCall(async (data, context) => {
-  // フロントエンドから画像データが送られてこなかった場合はエラー
-  if (!data.imageData) {
-    throw new functions.https.HttpsError(
-      "invalid-argument",
-      "画像データが見つかりません。"
-    );
-  }
+    exports.analyzeLabel = functions.https.onCall(async (data, context) => {
+        if (!data.imageData) {
+            throw new functions.https.HttpsError('invalid-argument', '画像データが必要です。');
+        }
+        if (!geminiApiKey) {
+            throw new functions.https.HttpsError('internal', 'サーバー側でAPIキーが設定されていません。');
+        }
 
-  // Base64形式の画像データを取得
-  const base64ImageData = data.imageData;
+        try {
+            const imagePart = {
+                inlineData: {
+                    data: data.imageData,
+                    mimeType: 'image/jpeg'
+                }
+            };
 
-  // AIに渡すプロンプト（指示文）
-  const prompt = `
-    このラベル画像から、以下の情報をJSON形式で厳密に抽出してください。
-    - productName (製品名)
-    - origin (産地)
-    - janCode (JANコード)
-    - mngId (管理番号)
-    該当する情報がない項目は null としてください。
-    JSON以外の説明文は絶対に含めないでください。
-  `;
+            const result = await model.generateContent([SYSTEM_PROMPT, imagePart]);
+            const response = await result.response;
+            let text = response.text();
 
-  // AIに渡す画像データの形式を定義
-  const imagePart = {
-    inlineData: {
-      data: base64ImageData,
-      mimeType: "image/jpeg",
-    },
-  };
+            // AIの返答からJSON部分だけを抽出する
+            text = text.substring(text.indexOf('{'), text.lastIndexOf('}') + 1);
+            
+            const jsonData = JSON.parse(text);
 
-  try {
-    // AIに画像とプロンプトを渡して、結果を生成させる
-    const result = await model.generateContent([prompt, imagePart]);
-    const response = await result.response;
-    const jsonText = response.text()
-        .replace(/```json/g, '') // 不要なマークダウンを削除
-        .replace(/```/g, '');   // 不要なマークダウンを削除
+            return jsonData;
 
-    // AIからの返答（JSON文字列）をパースしてフロントエンドに返す
-    return JSON.parse(jsonText);
-  } catch (error) {
-    console.error("AIの解析中にエラーが発生しました:", error);
-    throw new functions.https.HttpsError(
-      "internal",
-      "AIの解析中にエラーが発生しました。"
-    );
-  }
-});
+        } catch (error) {
+            console.error("AIの解析中にエラーが発生しました:", error);
+            throw new functions.https.HttpsError('internal', 'AIの解析に失敗しました。', error.message);
+        }
+    });
+    
