@@ -262,8 +262,6 @@
                 }
             }
             
-            // --- ★★★ 変更点 ★★★ ---
-            // AI解析関数を、詳細なJSONオブジェクトを返すように修正
             async function analyzeLabelWithAI(base64ImageData) {
                 const analyzeLabel = firebase.functions().httpsCallable('analyzeLabel');
                 try {
@@ -271,7 +269,6 @@
                     const result = await analyzeLabel({ imageData: base64ImageData });
                     logStatus('AIがラベルの文字を解析しています...');
                     
-                    // Cloud Functionからの返り値(JSONオブジェクト)をそのまま返す
                     if (!result.data || !result.data.productName) {
                         throw new Error("AIが有効なデータを返しませんでした。");
                     }
@@ -282,7 +279,6 @@
                     throw new Error(errorMessage);
                 }
             }
-            // --- ★★★ 変更点ここまで ★★★ ---
 
             async function main() {
                 try {
@@ -382,20 +378,15 @@
                             if (!selectedProduct) throw new Error("選択された商品が見つかりません。");
 
                             logStatus('画像の準備をしています...');
-                            const base64ImageData = imagePreview.src.split(',[1];
+                            const base64ImageData = imagePreview.src.split(',')[1];
                             
-                            // --- ★★★ 変更点 ★★★ ---
-                            // 新しいAI関数を呼び出し、JSONオブジェクトを受け取る
                             const extractedData = await analyzeLabelWithAI(base64ImageData);
-                            const recognizedTextForLog = JSON.stringify(extractedData); // ログ保存用に文字列化
+                            const recognizedTextForLog = JSON.stringify(extractedData);
                             
                             logStatus('判定結果を比較しています...');
-                            // AIが抽出した各項目を、選択中の商品情報と比較
-                            // ?. と .includes() を使い、AIの認識が不完全でも部分的に一致すればOKとする
                             const isProductNameOk = extractedData.productName?.includes(selectedProduct.name);
                             const isOriginOk = extractedData.origin?.includes(selectedProduct.origin);
                             const isJanOk = extractedData.janCode?.includes(selectedProduct.jan);
-                            // --- ★★★ 変更点ここまで ★★★ ---
                             
                             resultSection.classList.remove('hidden');
                             if (isProductNameOk && isOriginOk && isJanOk) {
@@ -407,7 +398,7 @@
                             const wasSaveSuccessful = await saveCheckResult({
                                 workOrderId: currentWorkOrder.orderId, productId: selectedProduct.id,
                                 productName: selectedProduct.name, result: checkResult, 
-                                recognizedText: recognizedTextForLog, // ログにはJSON文字列を保存
+                                recognizedText: recognizedTextForLog,
                             });
 
                             if (wasSaveSuccessful) {
@@ -445,3 +436,4 @@
     </script>
 </body>
 </html>
+
