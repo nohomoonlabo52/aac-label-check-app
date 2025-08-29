@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ラベルチェックアプリ v1.7</title>
+    <title>ラベルチェックアプリ v1.8a</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Firebase SDKs -->
     <script src="/__/firebase/10.12.2/firebase-app-compat.js"></script>
@@ -13,7 +13,6 @@
     <!-- Firebase Init -->
     <script src="/__/firebase/init.js"></script>
 
-    <!-- ★★★ 追加 ★★★ -->
     <!-- HEIC/HEIF形式をJPEGに変換するためのライブラリ -->
     <script src="https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js"></script>
 
@@ -127,6 +126,7 @@
     <script type="module">
         
         document.addEventListener('DOMContentLoaded', () => {
+            // ... (DOM要素の取得は変更なし)
             const pageWorkList = document.getElementById('page-work-list');
             const pageLabelCheck = document.getElementById('page-label-check');
             const workListContainer = document.getElementById('work-list-container');
@@ -230,7 +230,7 @@
                     startCheckBtn.disabled = true;
                     imagePreview.src = '';
                     imagePreview.classList.add('hidden');
-                    imagePlaceholder.classList.remove('hidden');
+                    imagePlaceholder.classList.remove('hidden'); 
                     cameraInput.value = '';
                     takePictureBtn.disabled = false;
                 } catch (e) { console.error("UIのリセット中にエラーが発生しました:", e); }
@@ -285,7 +285,7 @@
                     const result = await analyzeLabel({ imageData: base64ImageData });
                     logStatus('AIがラベルの文字を解析しています...');
                     
-                    if (!result.data || !result.data.productName) {
+                    if (!result.data || (result.data.productName === null && result.data.janCode === null)) {
                         throw new Error("AIが有効なデータを返しませんでした。");
                     }
                     return result.data;
@@ -295,16 +295,17 @@
                     throw new Error(errorMessage);
                 }
             }
-
-            // ★★★ 変更点 ★★★
-            // Exif情報を読み取り、HEICを変換し、画像をリサイズする、より高度な関数
+            
+            // ★★★ 改善点 ★★★
+            // v1.6の安定したリサイズ処理をベースに、HEIC変換機能のみを追加した改善版
             function processImage(file, maxWidth = 800) {
                 return new Promise(async (resolve, reject) => {
                     let imageFile = file;
-                    // HEIC/HEIF形式の場合はJPEGに変換
+                    
                     const fileName = file.name.toLowerCase();
                     if (fileName.endsWith('.heic') || fileName.endsWith('.heif')) {
                         try {
+                           console.log("HEIC形式の画像を検出。JPEGに変換します...");
                            const convertedBlob = await heic2any({ blob: file, toType: "image/jpeg", quality: 0.8 });
                            imageFile = new File([convertedBlob], "converted.jpeg", { type: "image/jpeg" });
                         } catch (e) {
@@ -317,82 +318,28 @@
                         const img = new Image();
                         img.onload = () => {
                             const canvas = document.createElement('canvas');
-                            const ctx = canvas.getContext('2d');
-
-                            // Exif情報から回転情報を読み取り、必要であれば画像を回転させる
-                            const orientation = getOrientation(e.target.result);
                             let width = img.width;
                             let height = img.height;
 
-                            if (orientation > 4 && orientation < 9) {
-                                canvas.width = height;
-                                canvas.height = width;
-                            } else {
-                                canvas.width = width;
-                                canvas.height = height;
+                            if (width > maxWidth) {
+                                height *= maxWidth / width;
+                                width = maxWidth;
                             }
 
-                            switch (orientation) {
-                                case 2: ctx.transform(-1, 0, 0, 1, width, 0); break;
-                                case 3: ctx.transform(-1, 0, 0, -1, width, height); break;
-                                case 4: ctx.transform(1, 0, 0, -1, 0, height); break;
-                                case 5: ctx.transform(0, 1, 1, 0, 0, 0); break;
-                                case 6: ctx.transform(0, 1, -1, 0, height, 0); break;
-                                case 7: ctx.transform(0, -1, -1, 0, height, width); break;
-                                case 8: ctx.transform(0, -1, 1, 0, 0, width); break;
-                                default: ctx.transform(1, 0, 0, 1, 0, 0);
-                            }
-                            
-                            // リサイズ処理
-                            const scale = maxWidth / canvas.width;
-                            if(scale < 1) { // 縮小する場合のみリサイズ
-                                canvas.width *= scale;
-                                canvas.height *= scale;
-                            }
-
-                            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                            canvas.width = width;
+                            canvas.height = height;
+                            const ctx = canvas.getContext('2d');
+                            ctx.drawImage(img, 0, 0, width, height);
                             resolve(canvas.toDataURL('image/jpeg'));
                         };
-                        img.onerror = reject;
+                        img.onerror = (err) => reject(new Error("画像の読み込みに失敗しました。"));
                         img.src = e.target.result;
                     };
-                    reader.onerror = reject;
-                    reader.readAsBinaryString(file); // Exif情報を読むためにBinaryStringで読み込む
+                    reader.onerror = (err) => reject(new Error("ファイルの読み込みに失敗しました。"));
+                    reader.readAsDataURL(imageFile);
                 });
             }
 
-            function getOrientation(file) {
-                const view = new DataView(str2ab(file));
-                if (view.getUint16(0, false) != 0xFFD8) return -2;
-                let length = view.byteLength, offset = 2;
-                while (offset < length) {
-                    if (view.getUint16(offset+2, false) <= 8) return -1;
-                    const marker = view.getUint16(offset, false);
-                    offset += 2;
-                    if (marker == 0xFFE1) {
-                        if (view.getUint32(offset += 2, false) != 0x45786966) return -1;
-                        const little = view.getUint16(offset += 6, false) == 0x4949;
-                        offset += view.getUint32(offset + 4, little);
-                        const tags = view.getUint16(offset, little);
-                        offset += 2;
-                        for (let i = 0; i < tags; i++)
-                            if (view.getUint16(offset + (i * 12), little) == 0x0112)
-                                return view.getUint16(offset + (i * 12) + 8, little);
-                    }
-                    else if ((marker & 0xFF00) != 0xFF00) break;
-                    else offset += view.getUint16(offset, false);
-                }
-                return -1;
-            }
-
-            function str2ab(str) {
-                const buf = new ArrayBuffer(str.length);
-                const bufView = new Uint8Array(buf);
-                for (let i=0, strLen=str.length; i < strLen; i++) {
-                    bufView[i] = str.charCodeAt(i);
-                }
-                return buf;
-            }
 
             async function main() {
                 try {
@@ -446,7 +393,7 @@
                         const file = event.target.files[0]; 
                         if (file) {
                             try {
-                                const processedDataUrl = await processImage(file); // ★★★ 変更点 ★★★
+                                const processedDataUrl = await processImage(file);
                                 imagePreview.src = processedDataUrl; 
                                 imagePreview.classList.remove('hidden'); 
                                 imagePlaceholder.classList.add('hidden'); 
