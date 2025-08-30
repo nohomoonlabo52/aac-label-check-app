@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ラベルチェックアプリ v1.11</title>
+    <title>ラベルチェックアプリ v1.12</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Firebase SDKs -->
     <script src="/__/firebase/10.12.2/firebase-app-compat.js"></script>
@@ -110,13 +110,20 @@
                         <div id="resultError" class="hidden bg-red-100 border-l-4 border-red-500 text-red-700 p-4 rounded-md" role="alert">
                             <p class="font-bold text-2xl">不一致 (NG)</p>
                             <p>ラベルが違う可能性があります！</p>
-                            
-                            <!-- ★★★ v1.11 改善点 ★★★ -->
-                            <!-- 不一致の場合の詳細表示エリア -->
                             <div id="errorDetails" class="mt-3 border-t border-red-300 pt-3 text-sm"></div>
                         </div>
                         <p id="saveStatus" class="text-center mt-2 font-semibold"></p>
-                    </section>
+                        
+                        <!-- ★★★ v1.12 改善点 ★★★ -->
+                        <div id="manual-override-section" class="hidden mt-4 space-y-2">
+                            <button id="manualOkBtn" class="w-full bg-teal-500 hover:bg-teal-600 text-white font-bold py-3 px-4 rounded-lg">
+                                目視で一致 (OK) として保存
+                            </button>
+                            <button id="nextLabelBtn" class="w-full bg-gray-500 hover:bg-gray-600 text-white font-bold py-3 px-4 rounded-lg">
+                                次のラベルを撮影
+                            </button>
+                        </div>
+                     </section>
                 </div>
             </main>
         </div>
@@ -164,7 +171,10 @@
             const statusModal = document.getElementById('statusModal');
             const statusLog = document.getElementById('statusLog');
             const closeModalBtn = document.getElementById('closeModalBtn');
-            const errorDetails = document.getElementById('errorDetails'); // ★★★ v1.11 追加
+            const errorDetails = document.getElementById('errorDetails');
+            const manualOverrideSection = document.getElementById('manual-override-section'); // ★★★ v1.12 追加
+            const manualOkBtn = document.getElementById('manualOkBtn'); // ★★★ v1.12 追加
+            const nextLabelBtn = document.getElementById('nextLabelBtn'); // ★★★ v1.12 追加
 
             // ... (変数の初期化)
             let isChecking = false;
@@ -175,6 +185,7 @@
             let auth = null;
             let PRODUCTS = [];
             let WORK_ORDERS = [];
+            let lastCheckData = {}; // ★★★ v1.12 追加: 最後の判定データを保持
 
             // ... (UI操作系の関数は変更なし)
             const showPage = (pageToShow) => { pageWorkList.classList.add('hidden'); pageLabelCheck.classList.add('hidden'); pageToShow.classList.remove('hidden'); };
@@ -231,6 +242,8 @@
 
             const resetUIForNextCheck = () => {
                 try {
+                    startCheckSection.classList.remove('hidden');
+                    manualOverrideSection.classList.add('hidden');
                     buttonText.textContent = '判定を開始する';
                     loadingSpinner.classList.add('hidden');
                     startCheckBtn.classList.remove('is-checking');
@@ -242,6 +255,8 @@
                     imagePlaceholder.classList.remove('hidden'); 
                     cameraInput.value = '';
                     takePictureBtn.disabled = false;
+                    resultSection.classList.add('hidden');
+                    saveStatus.textContent = '';
                 } catch (e) { console.error("UIのリセット中にエラーが発生しました:", e); }
             };
             
@@ -331,7 +346,7 @@
 
                             canvas.width = width;
                             canvas.height = height;
-                            const ctx = canvas.getContext('2d');
+                            const ctx = canvas.getContext('d');
                             ctx.drawImage(img, 0, 0, width, height);
                             resolve(canvas.toDataURL('image/jpeg'));
                         };
@@ -366,14 +381,8 @@
                                 currentWorkOrderInfo.textContent = `${product.name} (${currentWorkOrder.caseQuantity} ケース)`;
                                 productSelector.value = currentWorkOrder.productId;
                                 updateCheckTarget(currentWorkOrder.productId);
-                                resultSection.classList.add('hidden');
-                                saveStatus.textContent = '';
-                                imagePreview.src = '';
-                                imagePreview.classList.add('hidden');
-                                imagePlaceholder.classList.remove('hidden');
-                                startCheckBtn.disabled = true;
-                                takePictureBtn.disabled = false;
                                 showPage(pageLabelCheck);
+                                resetUIForNextCheck();
                             }
                         }
                     });
@@ -403,7 +412,8 @@
                                 takePictureBtn.disabled = true;
                                 resultSection.classList.add('hidden');
                                 saveStatus.textContent = '';
-                                setTimeout(() => { startCheckSection.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 100);
+                                manualOverrideSection.classList.add('hidden');
+                                startCheckSection.classList.remove('hidden');
                             } catch (error) {
                                 console.error("画像の処理に失敗しました:", error);
                                 alert(`画像の処理に失敗しました: ${error.message}`);
@@ -413,12 +423,25 @@
 
                     closeModalBtn.addEventListener('click', hideStatusModal);
 
-                    const saveCheckResult = async (checkData) => {
+                    const saveCheckResult = async (checkData, override = false) => {
                         try {
-                            await db.collection("check_logs").add({ ...checkData, checkedAt: firebase.firestore.FieldValue.serverTimestamp(), userId: userId });
+                            const dataToSave = { 
+                                ...checkData, 
+                                checkedAt: firebase.firestore.FieldValue.serverTimestamp(), 
+                                userId: userId,
+                                // ★★★ v1.12 改善点 ★★★
+                                // 手動修正のステータスを記録
+                                overrideStatus: override ? 'manual_ok' : 'none' 
+                            };
+                            await db.collection("check_logs").add(dataToSave);
+                            
+                            saveStatus.textContent = '✓ 結果をデータベースに保存しました。';
+                            saveStatus.className = 'text-center mt-2 font-semibold text-green-600';
                             return true;
                         } catch (error) {
                             console.error("Firestoreへのチェック結果の保存に失敗しました:", error);
+                            saveStatus.textContent = '✗ 結果のデータベースへの保存に失敗しました。';
+                            saveStatus.className = 'text-center mt-2 font-semibold text-red-600';
                             return false;
                         }
                     };
@@ -437,8 +460,6 @@
                         showStatusModal();
 
                         try {
-                            let checkResult = 'NG';
-                            
                             const selectedProductId = productSelector.value;
                             const selectedProduct = PRODUCTS.find(p => p.id === selectedProductId);
                             if (!selectedProduct) throw new Error("選択された商品が見つかりません。");
@@ -464,19 +485,26 @@
                             const isJanOk = recognizedJan.includes(dbJan);
 
                             resultSection.classList.remove('hidden');
+                            startCheckSection.classList.add('hidden');
                             
-                            // ★★★ v1.11 改善点 ★★★
-                            // 3項目すべてが一致した場合のみ「OK」とする
+                            lastCheckData = { // 最後の判定結果を保存
+                                workOrderId: currentWorkOrder.orderId, productId: selectedProduct.id,
+                                productName: selectedProduct.name, recognizedText: JSON.stringify(extractedData),
+                            };
+
                             if (isProductNameOk && isOriginOk && isJanOk) {
                                 resultSuccess.classList.remove('hidden'); 
                                 resultError.classList.add('hidden');
-                                errorDetails.classList.add('hidden'); // 詳細を隠す
-                                checkResult = 'OK';
+                                manualOverrideSection.classList.remove('hidden');
+                                manualOkBtn.classList.add('hidden'); // OKなので手動ボタンは不要
+                                lastCheckData.result = 'OK';
+                                await saveCheckResult(lastCheckData, false);
                             } else {
                                 resultError.classList.remove('hidden'); 
                                 resultSuccess.classList.add('hidden');
+                                manualOverrideSection.classList.remove('hidden');
+                                manualOkBtn.classList.remove('hidden'); // NGなので手動ボタンを表示
                                 
-                                // 不一致の詳細を生成して表示
                                 const detailsHtml = `
                                     <p class="font-semibold mb-1">不一致の詳細:</p>
                                     <ul class="list-disc list-inside text-left">
@@ -494,23 +522,9 @@
                                         </li>
                                     </ul>`;
                                 errorDetails.innerHTML = detailsHtml;
-                                errorDetails.classList.remove('hidden');
+                                lastCheckData.result = 'NG';
+                                await saveCheckResult(lastCheckData, false);
                             }
-
-                            const wasSaveSuccessful = await saveCheckResult({
-                                workOrderId: currentWorkOrder.orderId, productId: selectedProduct.id,
-                                productName: selectedProduct.name, result: checkResult, 
-                                recognizedText: JSON.stringify(extractedData),
-                            });
-
-                            if (wasSaveSuccessful) {
-                                saveStatus.textContent = '✓ 結果をデータベースに保存しました。';
-                                saveStatus.className = 'text-center mt-2 font-semibold text-green-600';
-                            } else {
-                                saveStatus.textContent = '✗ 結果のデータベースへの保存に失敗しました。';
-                                saveStatus.className = 'text-center mt-2 font-semibold text-red-600';
-                            }
-                            
                             logStatus('判定が完了しました。「閉じる」を押してください。', true);
 
                         } catch (error) {
@@ -521,9 +535,36 @@
                             saveStatus.className = 'text-center mt-2 font-semibold text-red-600';
                             if (currentLogItem) { currentLogItem.innerHTML += ` <span class="text-red-500 font-semibold">❌ エラー</span>`; }
                         } finally {
-                            resetUIForNextCheck();
+                            isChecking = false;
+                            buttonText.textContent = '判定を開始する';
+                            loadingSpinner.classList.add('hidden');
+                            startCheckBtn.classList.remove('is-checking');
+                            startCheckBtn.classList.add('bg-green-500', 'hover:bg-green-600');
                         }
                     });
+                    
+                    // ★★★ v1.12 改善点 ★★★
+                    // 手動一致ボタンの処理
+                    manualOkBtn.addEventListener('click', async () => {
+                        manualOkBtn.disabled = true;
+                        manualOkBtn.textContent = '保存中...';
+                        
+                        // 結果を 'OK' に上書きして保存
+                        lastCheckData.result = 'OK';
+                        const wasSaveSuccessful = await saveCheckResult(lastCheckData, true); // overrideをtrueに
+                        
+                        if(wasSaveSuccessful) {
+                            // UIを成功状態に更新
+                            resultSuccess.classList.remove('hidden');
+                            resultError.classList.add('hidden');
+                        }
+                        
+                        manualOkBtn.disabled = false;
+                        manualOkBtn.textContent = '目視で一致 (OK) として保存';
+                    });
+
+                    nextLabelBtn.addEventListener('click', resetUIForNextCheck);
+
 
                 } catch (e) {
                     console.error("Firebaseの初期化またはデータ読み込みに失敗:", e);
