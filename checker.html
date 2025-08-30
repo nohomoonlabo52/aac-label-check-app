@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ラベルチェックアプリ v1.12</title>
+    <title>ラベルチェックアプリ v1.12a</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Firebase SDKs -->
     <script src="/__/firebase/10.12.2/firebase-app-compat.js"></script>
@@ -114,7 +114,6 @@
                         </div>
                         <p id="saveStatus" class="text-center mt-2 font-semibold"></p>
                         
-                        <!-- ★★★ v1.12 改善点 ★★★ -->
                         <div id="manual-override-section" class="hidden mt-4 space-y-2">
                             <button id="manualOkBtn" class="w-full bg-teal-500 hover:bg-teal-600 text-white font-bold py-3 px-4 rounded-lg">
                                 目視で一致 (OK) として保存
@@ -142,7 +141,6 @@
     <script type="module">
         
         document.addEventListener('DOMContentLoaded', () => {
-            // ... (DOM要素の取得)
             const pageWorkList = document.getElementById('page-work-list');
             const pageLabelCheck = document.getElementById('page-label-check');
             const workListContainer = document.getElementById('work-list-container');
@@ -172,11 +170,10 @@
             const statusLog = document.getElementById('statusLog');
             const closeModalBtn = document.getElementById('closeModalBtn');
             const errorDetails = document.getElementById('errorDetails');
-            const manualOverrideSection = document.getElementById('manual-override-section'); // ★★★ v1.12 追加
-            const manualOkBtn = document.getElementById('manualOkBtn'); // ★★★ v1.12 追加
-            const nextLabelBtn = document.getElementById('nextLabelBtn'); // ★★★ v1.12 追加
+            const manualOverrideSection = document.getElementById('manual-override-section');
+            const manualOkBtn = document.getElementById('manualOkBtn');
+            const nextLabelBtn = document.getElementById('nextLabelBtn');
 
-            // ... (変数の初期化)
             let isChecking = false;
             let currentWorkOrder = null;
             let currentLogItem = null;
@@ -185,9 +182,8 @@
             let auth = null;
             let PRODUCTS = [];
             let WORK_ORDERS = [];
-            let lastCheckData = {}; // ★★★ v1.12 追加: 最後の判定データを保持
+            let lastCheckData = {};
 
-            // ... (UI操作系の関数は変更なし)
             const showPage = (pageToShow) => { pageWorkList.classList.add('hidden'); pageLabelCheck.classList.add('hidden'); pageToShow.classList.remove('hidden'); };
             const displayCurrentDate = () => {
                 const today = new Date();
@@ -346,7 +342,7 @@
 
                             canvas.width = width;
                             canvas.height = height;
-                            const ctx = canvas.getContext('d');
+                            const ctx = canvas.getContext('2d'); // ★★★ 修正点 ★★★
                             ctx.drawImage(img, 0, 0, width, height);
                             resolve(canvas.toDataURL('image/jpeg'));
                         };
@@ -429,8 +425,6 @@
                                 ...checkData, 
                                 checkedAt: firebase.firestore.FieldValue.serverTimestamp(), 
                                 userId: userId,
-                                // ★★★ v1.12 改善点 ★★★
-                                // 手動修正のステータスを記録
                                 overrideStatus: override ? 'manual_ok' : 'none' 
                             };
                             await db.collection("check_logs").add(dataToSave);
@@ -487,7 +481,7 @@
                             resultSection.classList.remove('hidden');
                             startCheckSection.classList.add('hidden');
                             
-                            lastCheckData = { // 最後の判定結果を保存
+                            lastCheckData = {
                                 workOrderId: currentWorkOrder.orderId, productId: selectedProduct.id,
                                 productName: selectedProduct.name, recognizedText: JSON.stringify(extractedData),
                             };
@@ -496,14 +490,14 @@
                                 resultSuccess.classList.remove('hidden'); 
                                 resultError.classList.add('hidden');
                                 manualOverrideSection.classList.remove('hidden');
-                                manualOkBtn.classList.add('hidden'); // OKなので手動ボタンは不要
+                                manualOkBtn.classList.add('hidden');
                                 lastCheckData.result = 'OK';
                                 await saveCheckResult(lastCheckData, false);
                             } else {
                                 resultError.classList.remove('hidden'); 
                                 resultSuccess.classList.add('hidden');
                                 manualOverrideSection.classList.remove('hidden');
-                                manualOkBtn.classList.remove('hidden'); // NGなので手動ボタンを表示
+                                manualOkBtn.classList.remove('hidden');
                                 
                                 const detailsHtml = `
                                     <p class="font-semibold mb-1">不一致の詳細:</p>
@@ -543,18 +537,14 @@
                         }
                     });
                     
-                    // ★★★ v1.12 改善点 ★★★
-                    // 手動一致ボタンの処理
                     manualOkBtn.addEventListener('click', async () => {
                         manualOkBtn.disabled = true;
                         manualOkBtn.textContent = '保存中...';
                         
-                        // 結果を 'OK' に上書きして保存
                         lastCheckData.result = 'OK';
-                        const wasSaveSuccessful = await saveCheckResult(lastCheckData, true); // overrideをtrueに
+                        const wasSaveSuccessful = await saveCheckResult(lastCheckData, true);
                         
                         if(wasSaveSuccessful) {
-                            // UIを成功状態に更新
                             resultSuccess.classList.remove('hidden');
                             resultError.classList.add('hidden');
                         }
