@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ラベルチェックアプリ v1.8a</title>
+    <title>ラベルチェックアプリ v1.9</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Firebase SDKs -->
     <script src="/__/firebase/10.12.2/firebase-app-compat.js"></script>
@@ -26,6 +26,13 @@
         input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
         input[type=number] { -moz-appearance: textfield; }
         .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(0, 0, 0, 0.5); display: flex; align-items: center; justify-content: center; z-index: 50; }
+        
+        /* ★★★ 改善点 ★★★ */
+        /* 画像のプレビューの高さを画面の半分以下に制限 */
+        #imagePreview {
+            max-height: 50vh;
+            object-fit: contain; /* 画像の縦横比を維持 */
+        }
     </style>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -79,17 +86,19 @@
                         <h2 class="text-lg font-semibold text-gray-700 mb-2">2. ラベル撮影</h2>
                         <input type="file" accept="image/*" capture="environment" id="cameraInput">
                         <button id="takePictureBtn" class="w-full bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-4 rounded-lg flex items-center justify-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
-                            <svg class="w-6 h-6 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                            <svg class="w-6 h-6 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
                             ラベルを撮影する
                         </button>
                     </section>
                 </div>
                 
-                <div>
+                <!-- ★★★ 改善点 ★★★ -->
+                <!-- プレビューと判定セクションのレイアウトを変更 -->
+                <div class="flex flex-col">
                     <h2 class="text-lg font-semibold text-gray-700 mb-2">3. プレビューと判定</h2>
-                    <div class="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center sticky top-6" id="imagePreviewContainer">
-                        <img id="imagePreview" src="" class="hidden max-w-full mx-auto rounded-md" alt="撮影したラベルのプレビュー">
-                        <p id="imagePlaceholder" class="text-gray-400 py-20">ここに撮影した画像が表示されます</p>
+                    <div class="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center flex-grow flex items-center justify-center" id="imagePreviewContainer">
+                        <img id="imagePreview" src="" class="hidden max-w-full rounded-md" alt="撮影したラベルのプレビュー">
+                        <p id="imagePlaceholder" class="text-gray-400">ここに撮影した画像が表示されます</p>
                     </div>
                     <section id="startCheckSection" class="mt-4">
                          <button id="startCheckBtn" class="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-4 rounded-lg transition-colors disabled:bg-gray-300 flex items-center justify-center" disabled>
@@ -296,8 +305,6 @@
                 }
             }
             
-            // ★★★ 改善点 ★★★
-            // v1.6の安定したリサイズ処理をベースに、HEIC変換機能のみを追加した改善版
             function processImage(file, maxWidth = 800) {
                 return new Promise(async (resolve, reject) => {
                     let imageFile = file;
@@ -517,4 +524,3 @@
     </script>
 </body>
 </html>
-
