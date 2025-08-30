@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ラベルチェックアプリ v1.10</title>
+    <title>ラベルチェックアプリ v1.11</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Firebase SDKs -->
     <script src="/__/firebase/10.12.2/firebase-app-compat.js"></script>
@@ -27,11 +27,9 @@
         input[type=number] { -moz-appearance: textfield; }
         .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(0, 0, 0, 0.5); display: flex; align-items: center; justify-content: center; z-index: 50; }
         
-        /* ★★★ 改善点 ★★★ */
-        /* 画像のプレビューの高さを画面の半分以下に制限 */
         #imagePreview {
             max-height: 50vh;
-            object-fit: contain; /* 画像の縦横比を維持 */
+            object-fit: contain;
         }
     </style>
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -92,8 +90,6 @@
                     </section>
                 </div>
                 
-                <!-- ★★★ 改善点 ★★★ -->
-                <!-- プレビューと判定セクションのレイアウトを変更 -->
                 <div class="flex flex-col">
                     <h2 class="text-lg font-semibold text-gray-700 mb-2">3. プレビューと判定</h2>
                     <div class="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center flex-grow flex items-center justify-center" id="imagePreviewContainer">
@@ -114,6 +110,10 @@
                         <div id="resultError" class="hidden bg-red-100 border-l-4 border-red-500 text-red-700 p-4 rounded-md" role="alert">
                             <p class="font-bold text-2xl">不一致 (NG)</p>
                             <p>ラベルが違う可能性があります！</p>
+                            
+                            <!-- ★★★ v1.11 改善点 ★★★ -->
+                            <!-- 不一致の場合の詳細表示エリア -->
+                            <div id="errorDetails" class="mt-3 border-t border-red-300 pt-3 text-sm"></div>
                         </div>
                         <p id="saveStatus" class="text-center mt-2 font-semibold"></p>
                     </section>
@@ -135,7 +135,7 @@
     <script type="module">
         
         document.addEventListener('DOMContentLoaded', () => {
-            // ... (DOM要素の取得は変更なし)
+            // ... (DOM要素の取得)
             const pageWorkList = document.getElementById('page-work-list');
             const pageLabelCheck = document.getElementById('page-label-check');
             const workListContainer = document.getElementById('work-list-container');
@@ -164,7 +164,9 @@
             const statusModal = document.getElementById('statusModal');
             const statusLog = document.getElementById('statusLog');
             const closeModalBtn = document.getElementById('closeModalBtn');
+            const errorDetails = document.getElementById('errorDetails'); // ★★★ v1.11 追加
 
+            // ... (変数の初期化)
             let isChecking = false;
             let currentWorkOrder = null;
             let currentLogItem = null;
@@ -174,6 +176,7 @@
             let PRODUCTS = [];
             let WORK_ORDERS = [];
 
+            // ... (UI操作系の関数は変更なし)
             const showPage = (pageToShow) => { pageWorkList.classList.add('hidden'); pageLabelCheck.classList.add('hidden'); pageToShow.classList.remove('hidden'); };
             const displayCurrentDate = () => {
                 const today = new Date();
@@ -187,10 +190,7 @@
 
                 WORK_ORDERS.forEach(order => {
                     const product = PRODUCTS.find(p => p.id === order.productId);
-                    if (!product) {
-                        console.warn(`作業指示(ID: ${order.orderId})に対応する商品(ID: ${order.productId})が見つかりません。`);
-                        return;
-                    }
+                    if (!product) { console.warn(`作業指示(ID: ${order.orderId})に対応する商品(ID: ${order.productId})が見つかりません。`); return; }
                     const statusColor = order.status === '作業中' ? 'bg-yellow-200' : 'bg-gray-200';
                     const item = document.createElement('div');
                     item.className = 'p-4 border rounded-lg shadow-sm cursor-pointer hover:bg-gray-50 transition-colors flex flex-col justify-between';
@@ -268,12 +268,8 @@
                     const workOrdersSnapshot = await firebase.firestore().collection("work_orders").get();
                     WORK_ORDERS = workOrdersSnapshot.docs.map(doc => ({ docId: doc.id, ...doc.data() }));
 
-                    if (WORK_ORDERS.length === 0) {
-                        loadingIndicator.textContent = '作業指示がありません。';
-                    } else {
-                        loadingIndicator.classList.add('hidden');
-                        workListContainer.classList.remove('hidden');
-                    }
+                    if (WORK_ORDERS.length === 0) { loadingIndicator.textContent = '作業指示がありません。'; } 
+                    else { loadingIndicator.classList.add('hidden'); workListContainer.classList.remove('hidden'); }
 
                     populateProductSelector();
                     renderWorkList();
@@ -346,7 +342,6 @@
                     reader.readAsDataURL(imageFile);
                 });
             }
-
 
             async function main() {
                 try {
@@ -464,23 +459,42 @@
                             const dbOrigin = cleanText(selectedProduct.origin);
                             const dbJan = cleanText(selectedProduct.jan);
 
-                            console.log("--- 判定デバッグ情報 ---");
-                            console.log(`[品名] DB: "${dbName}" vs AI: "${recognizedName}"`);
-                            console.log(`[産地] DB: "${dbOrigin}" vs AI: "${recognizedOrigin}"`);
-                            console.log(`[JAN]  DB: "${dbJan}" vs AI: "${recognizedJan}"`);
-
                             const isProductNameOk = recognizedName.includes(dbName);
                             const isOriginOk = recognizedOrigin.includes(dbOrigin);
                             const isJanOk = recognizedJan.includes(dbJan);
 
-                            console.log(`品名一致: ${isProductNameOk}, 産地一致: ${isOriginOk}, JAN一致: ${isJanOk}`);
-                            console.log("----------------------");
-                            
                             resultSection.classList.remove('hidden');
+                            
+                            // ★★★ v1.11 改善点 ★★★
+                            // 3項目すべてが一致した場合のみ「OK」とする
                             if (isProductNameOk && isOriginOk && isJanOk) {
-                                resultSuccess.classList.remove('hidden'); resultError.classList.add('hidden'); checkResult = 'OK';
+                                resultSuccess.classList.remove('hidden'); 
+                                resultError.classList.add('hidden');
+                                errorDetails.classList.add('hidden'); // 詳細を隠す
+                                checkResult = 'OK';
                             } else {
-                                resultError.classList.remove('hidden'); resultSuccess.classList.add('hidden');
+                                resultError.classList.remove('hidden'); 
+                                resultSuccess.classList.add('hidden');
+                                
+                                // 不一致の詳細を生成して表示
+                                const detailsHtml = `
+                                    <p class="font-semibold mb-1">不一致の詳細:</p>
+                                    <ul class="list-disc list-inside text-left">
+                                        <li>
+                                            <span class="${isProductNameOk ? 'text-green-600' : 'text-red-600'} font-bold">${isProductNameOk ? '✔ 品名' : '✖ 品名'}</span>
+                                            <br>DB: ${dbName} | AI: ${recognizedName || '読取不可'}
+                                        </li>
+                                        <li class="mt-1">
+                                            <span class="${isOriginOk ? 'text-green-600' : 'text-red-600'} font-bold">${isOriginOk ? '✔ 産地' : '✖ 産地'}</span>
+                                            <br>DB: ${dbOrigin} | AI: ${recognizedOrigin || '読取不可'}
+                                        </li>
+                                        <li class="mt-1">
+                                            <span class="${isJanOk ? 'text-green-600' : 'text-red-600'} font-bold">${isJanOk ? '✔ JAN' : '✖ JAN'}</span>
+                                            <br>DB: ${dbJan} | AI: ${recognizedJan || '読取不可'}
+                                        </li>
+                                    </ul>`;
+                                errorDetails.innerHTML = detailsHtml;
+                                errorDetails.classList.remove('hidden');
                             }
 
                             const wasSaveSuccessful = await saveCheckResult({
@@ -524,3 +538,4 @@
     </script>
 </body>
 </html>
+
