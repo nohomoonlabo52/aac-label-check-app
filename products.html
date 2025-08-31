@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ラベルチェックアプリ 商品マスタ管理 v1.1.1</title>
+    <title>ラベルチェックアプリ 商品マスタ管理 v1.1.2</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Firebase SDKs -->
     <script src="/__/firebase/10.12.2/firebase-app-compat.js"></script>
@@ -76,7 +76,7 @@
                 <form id="add-product-form" novalidate>
                     <h3 class="text-lg font-medium text-gray-800 mb-2 mt-6">2. 内容を確認・修正して追加</h3>
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <input type="text" id="productMngId" name="mngId" placeholder="管理番号" required class="p-3 border border-gray-300 rounded-lg">
+                        <input type="text" id="productMngId" name="mngId" placeholder="管理番号" required class="p-3 border border-gray-300 rounded-lg" maxlength="4">
                         <input type="text" id="productName" name="name" placeholder="商品名" required class="p-3 border border-gray-300 rounded-lg">
                         <div class="autocomplete-container md:col-span-1">
                             <input type="text" id="productOrigin" name="origin" placeholder="産地 (ひらがな, ローマ字可)" required class="p-3 border border-gray-300 rounded-lg w-full">
@@ -339,9 +339,14 @@
             addProductForm.addEventListener('submit', async (e) => {
                 e.preventDefault();
 
-                // ★★★ Final Validation Logic ★★★
+                // ★★★ Final Validation Logic (Management Number added) ★★★
                 const isValidPrefecture = prefectures.some(p => p.kanji === productOriginInput.value);
 
+                if (!/^\d{4}$/.test(productMngIdInput.value)) {
+                    showToast("管理番号は4桁の数字で入力してください。", false);
+                    productMngIdInput.focus();
+                    return;
+                }
                 if (productJanInput.value.length !== 13 || !/^\d+$/.test(productJanInput.value)) {
                     showToast("JANコードは13桁の数字で入力してください。", false);
                     productJanInput.focus();
@@ -457,3 +462,4 @@
     </script>
 </body>
 </html>
+
