@@ -1,59 +1,65 @@
-/**
- * ラベルチェックアプリ Cloud Function v1.2.7
- * * 機能:
- * - 画像データを受け取り、Google Gemini APIを使用して画像内のテキストを抽出します。
- * - AIの役割を純粋なOCRに限定し、見たままのテキストを返すことに特化させます。
- * * v1.2.7 変更点:
- * - AIへのプロンプトを、解釈や推測を排除した、純粋な文字起こし（OCR）の指示に変更。
- * - 返り値の形式を、構造化されたJSONではなく、抽出したテキスト全体を含むシンプルなオブジェクトに変更。
- */
+// Firebase Admin SDK（お世話役）をインポートして初期化
+const admin = require("firebase-admin");
+admin.initializeApp();
 
+// Firebase Cloud Functionsのライブラリをインポート
 const functions = require("firebase-functions");
+// GoogleのAIライブラリをインポート
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 
+// Gemini APIキーをFirebaseの環境変数から安全に取得
 const geminiApiKey = functions.config().gemini.key;
-if (!geminiApiKey) {
-  console.error("Gemini APIキーが設定されていません。");
-}
+// AIモデルを初期化
 const genAI = new GoogleGenerativeAI(geminiApiKey);
-const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash-preview-05-20" });
+const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
-exports.analyzeLabel = functions
-  .region('asia-northeast1')
-  .https.onCall(async (data, context) => {
-    if (!geminiApiKey) {
-      throw new functions.https.HttpsError('internal', 'サーバーにGemini APIキーが設定されていません。');
-    }
-    if (!data.imageData) {
-      throw new functions.https.HttpsError('invalid-argument', '画像データが見つかりません。');
-    }
+// 'analyzeLabel'という名前でCloud Functionを定義
+exports.analyzeLabel = functions.https.onCall(async (data, context) => {
+  // フロントエンドから画像データが送られてこなかった場合はエラー
+  if (!data.imageData) {
+    throw new functions.https.HttpsError(
+      "invalid-argument",
+      "画像データが見つかりません。"
+    );
+  }
 
-    const imageBuffer = Buffer.from(data.imageData, 'base64');
-    
-    // ★★★ v1.2.7 変更点 ★★★
-    // プロンプトを純粋なOCRタスクに限定
-    const prompt = `
-      あなたは高性能なOCRエンジンです。
-      添付された画像に含まれるすべてのテキストを、改行も含めて、見たまま一字一句正確に書き出してください。
-      余計な解釈、要約、JSON形式への変換は一切不要です。ただのプレーンテキストとして回答してください。
-    `;
+  // Base64形式の画像データを取得
+  const base64ImageData = data.imageData;
 
-    try {
-      const result = await model.generateContent([prompt, {
-        inlineData: {
-          data: imageBuffer.toString("base64"),
-          mimeType: "image/jpeg"
-        }
-      }]);
-      const response = result.response;
-      const rawText = response.text();
-      
-      // AIが返したプレーンテキストをそのまま返す
-      return { rawText: rawText };
+  // AIに渡すプロンプト（指示文）
+  const prompt = `
+    このラベル画像から、以下の情報をJSON形式で厳密に抽出してください。
+    - productName (製品名)
+    - origin (産地)
+    - janCode (JANコード)
+    - mngId (管理番号)
+    該当する情報がない項目は null としてください。
+    JSON以外の説明文は絶対に含めないでください。
+  `;
 
-    } catch (error) {
-      console.error("Gemini APIの呼び出しでエラーが発生しました:", error);
-      throw new functions.https.HttpsError('internal', 'AIの解析中にエラーが発生しました。');
-    }
+  // AIに渡す画像データの形式を定義
+  const imagePart = {
+    inlineData: {
+      data: base64ImageData,
+      mimeType: "image/jpeg",
+    },
+  };
+
+  try {
+    // AIに画像とプロンプトを渡して、結果を生成させる
+    const result = await model.generateContent([prompt, imagePart]);
+    const response = await result.response;
+    const jsonText = response.text()
+        .replace(/```json/g, '') // 不要なマークダウンを削除
+        .replace(/```/g, '');   // 不要なマークダウンを削除
+
+    // AIからの返答（JSON文字列）をパースしてフロントエンドに返す
+    return JSON.parse(jsonText);
+  } catch (error) {
+    console.error("AIの解析中にエラーが発生しました:", error);
+    throw new functions.https.HttpsError(
+      "internal",
+      "AIの解析中にエラーが発生しました。"
+    );
+  }
 });
-
