@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ラベルチェックアプリ 商品マスタ管理 v1.1.2</title>
+    <title>ラベルチェックアプリ 商品マスタ管理 v1.1.2a</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Firebase SDKs -->
     <script src="/__/firebase/10.12.2/firebase-app-compat.js"></script>
@@ -203,7 +203,7 @@
                     <td class="py-4 px-4 whitespace-nowrap">${product.jan}</td>
                     <td class="py-4 px-4">${imageUrl}</td>
                     <td class="py-4 px-4 whitespace-nowrap">
-                        <button data-id="${product.docId}" class="delete-btn text-red-500 hover:text-red-700">Delete</button>
+                        <button data-id="${product.docId}" class="delete-btn text-red-500 hover:text-red-700">削除</button>
                     </td>
                 `;
                 productList.appendChild(tr);
@@ -359,7 +359,7 @@
                 }
 
                 submitProductBtn.disabled = true;
-                submitProductBtn.textContent = 'Adding...';
+                submitProductBtn.textContent = '追加中...';
 
                 try {
                     const productsCollection = firebase.firestore().collection("products");
