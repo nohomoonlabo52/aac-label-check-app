@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ラベルチェックアプリ 商品マスタ管理 v1.2.5</title>
+    <title>ラベルチェックアプリ 商品マスタ管理 v1.2.6</title>
     <script src="https://cdn.tailwindcss.com"></script>
     
     <script src="/__/firebase/10.12.2/firebase-app-compat.js"></script>
@@ -180,58 +180,6 @@
             }
         }
 
-        // ★★★ v1.2.5 追加 ★★★
-        function parseRawTextForProduct(text) {
-            const lines = text.split('\n').map(line => line.trim().replace(/[\s　]/g, '')).filter(line => line);
-            let mngId = null;
-            let productName = null;
-            let origin = null;
-            let janCode = null;
-            let remainingLines = [...lines];
-
-            // 1. JANコード (13桁の数字) を探す
-            const janRegex = /^(49|45)\d{11}$/;
-            remainingLines = remainingLines.filter(line => {
-                if (janRegex.test(line) && !janCode) {
-                    janCode = line;
-                    return false;
-                }
-                return true;
-            });
-
-            // 2. 産地 (都道府県名) を探す
-            const prefecturesForRegex = prefectures.map(p => p.kanji.replace(/[県府都]$/, '')).join('|');
-            const originRegex = new RegExp(`^(${prefecturesForRegex})(県|府|都|産)?$`);
-             remainingLines = remainingLines.filter(line => {
-                if (originRegex.test(line) && !origin) {
-                    origin = line;
-                    return false;
-                }
-                return true;
-            });
-
-            // 3. 管理番号 (3-4桁の数字) を探す
-            const mngIdRegex = /^\d{3,4}$/;
-            remainingLines = remainingLines.filter(line => {
-                 if (mngIdRegex.test(line) && !mngId) {
-                    mngId = line;
-                    return false;
-                 }
-                 return true;
-            });
-            
-            // 4. 残ったものから商品名らしいものを探す (カタカナ、ひらがな、漢字を含む行を優先)
-            const productNameCandidates = remainingLines.filter(line => /[ァ-ンぁ-ん一-龯]/.test(line));
-            if (productNameCandidates.length > 0) {
-                productName = productNameCandidates[0]; // 最初の候補を採用
-                remainingLines = remainingLines.filter(line => line !== productName);
-            } else if (remainingLines.length > 0) {
-                productName = remainingLines[0]; // 候補がなければ最初の行を採用
-            }
-
-            return { mngId, productName, origin, janCode };
-        }
-
         function renderProductList(products) {
             productList.innerHTML = '';
             if (products.length === 0) {
@@ -334,14 +282,15 @@
                     
                     try {
                         const base64ImageData = imageUrl.split(',')[1];
-                        const result = await analyzeLabelWithAI(base64ImageData);
+                        const extractedData = await analyzeLabelWithAI(base64ImageData);
                         
-                        if (result && result.rawText) {
-                            const parsedData = parseRawTextForProduct(result.rawText);
-                            productMngIdInput.value = parsedData.mngId || '';
-                            productNameInput.value = parsedData.productName || '';
-                            productOriginInput.value = (parsedData.origin || '').replace(/産$/, ''); 
-                            productJanInput.value = parsedData.janCode || '';
+                        // ★★★ v1.2.6 変更点 ★★★
+                        // AIから返ってきた構造化データを直接利用
+                        if (extractedData && (extractedData.productName || extractedData.janCode)) {
+                            productMngIdInput.value = extractedData.mngId || '';
+                            productNameInput.value = extractedData.productName || '';
+                            productOriginInput.value = (extractedData.origin || '').replace(/産$/, ''); 
+                            productJanInput.value = extractedData.janCode || '';
                             showToast("ラベル情報を自動入力しました。");
                         } else {
                            showToast("AIがテキストを認識できませんでした。手動で入力してください。", false);
