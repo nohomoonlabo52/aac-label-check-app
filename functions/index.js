@@ -1,95 +1,84 @@
+/**
+ * ラベルチェックアプリ Cloud Function v1.2.3
+ * * 機能:
+ * - 画像データを受け取り、Google Gemini APIを使用して画像内のテキストを解析します。
+ * - 商品マスタ登録用に、管理番号、商品名、産地、JANコードを抽出して返します。
+ * * v1.2.3 変更点:
+ * - products.html用にプロンプトを最適化。
+ * - mngId (管理番号) の抽出を明確に指示。
+ * - AIの役割を「商品マスタ登録用のラベル読み取り専門家」に設定。
+ */
+
 const functions = require("firebase-functions");
-const {VertexAI} = require("@google-cloud/vertexai");
+const { GoogleGenerativeAI } = require("@google/generative-ai");
 
-// Firebaseプロジェクトの初期化（Admin SDK）
-const admin = require("firebase-admin");
-admin.initializeApp();
+// ★★★ v1.10で手動変更した場合は、このバージョンに合わせてください ★★★
+// Firebaseの環境変数からAPIキーを安全に取得
+const geminiApiKey = functions.config().gemini.key;
+if (!geminiApiKey) {
+  console.error("Gemini APIキーが設定されていません。firebase functions:config:set gemini.key=\"YOUR_API_KEY\" を実行してください。");
+}
+const genAI = new GoogleGenerativeAI(geminiApiKey);
+const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash-preview-05-20" });
 
-// Cloud Functionのメイン処理
-exports.analyzeLabel = functions.https.onCall(async (data, context) => {
-  // 画像データがない場合はエラーを返す
-  if (!data.imageData) {
-    throw new functions.https.HttpsError(
-        "invalid-argument",
-        "画像データが必要です。",
-    );
-  }
-
-  const project = process.env.GCLOUD_PROJECT;
-  const location = "us-central1";
-
-  // Vertex AIの初期化
-  const vertexAI = new VertexAI({project: project, location: location});
-
-  // 使用するAIモデルを指定
-  const generativeModel = vertexAI.getGenerativeModel({
-    model: "gemini-2.5-flash-preview-05-20",
-  });
-
-  // ★★★ v1.10 改善点 ★★★
-  // AIへの指示（プロンプト）を「印字ラベル優先、手書きは例外」として最適化
-  const systemPrompt = `
-    あなたは日本の農産物加工場で使われる、印字されたラベルの読み取りに特化した、非常に高精度なOCRのエキスパートです。
-    ラベルは稀に手書きの場合もありますが、基本的には印字されています。
-    画像から以下の情報を注意深く抽出し、指定されたJSON形式で返してください。
-
-    # 抽出対象
-    - 品名は必ず「野菜」または「果物」の名前です。例えば「カットキャベツ」や「冷凍ブロッコリー」といった文字が含まれます。
-    - 産地は日本の都道府県名です。例えば「茨城県産」といった文字が含まれます。
-    - JANコードは「49」または「45」から始まる13桁の数字です。
-    - 管理番号は「管理番号」などの記述の近くにある数字です。
-
-    # 特に注意すべき点
-    - JANコードの数字 '3'と'8'、'0'と'9'、'1'と'7'は、印字が不鮮明な場合に間違いやすいので細心の注意を払ってください。
-    - 品名、産地、JANコード、管理番号以外の文字（製造者名、住所、電話番号など）は無視してください。
-
-    # 出力形式 (JSON)
-    {
-      "productName": "抽出した商品名",
-      "origin": "抽出した産地",
-      "mngId": "抽出した管理番号",
-      "janCode": "抽出したJANコード"
+exports.analyzeLabel = functions
+  .region('asia-northeast1') // 東京リージョン
+  .https.onCall(async (data, context) => {
+    if (!geminiApiKey) {
+      throw new functions.https.HttpsError('internal', 'サーバーにGemini APIキーが設定されていません。');
+    }
+    if (!data.imageData) {
+      throw new functions.https.HttpsError('invalid-argument', '画像データが見つかりません。');
     }
 
-    もし特定の情報が見つからない場合は、そのキーの値をnullにしてください。
-    余計な説明は一切含めず、JSONオブジェクトのみを返してください。
-  `;
+    const imageBuffer = Buffer.from(data.imageData, 'base64');
+    
+    // ★★★ v1.2.3 変更点 ★★★
+    // プロンプトを商品マスタ登録用に最適化
+    const prompt = `
+      あなたは日本の農産物加工場で使用される、商品マスタ登録用のラベル読み取りに特化したOCRの専門家です。
+      添付された画像から、以下の4つの情報を日本語で正確に抽出してください。
+      
+      1. 管理番号 (mngId): ラベルに記載されている可能性のある3桁または4桁の数字。もし見つからなければnullを返してください。
+      2. 商品名 (productName): 必ず野菜か果物の名前です。例えば「カットキャベツ」や「冷凍ブロッコリー」などです。
+      3. 産地 (origin): 必ず日本の都道府県名です。例えば「茨城県産」や「静岡県」などです。
+      4. JANコード (janCode): 日本のJANコードで、49または45から始まる13桁の数字です。
+      
+      注意事項:
+      - ラベルは稀に手書きの場合もありますが、基本的には印字されています。
+      - 数字の'3'と'8'、'0'と'9'、'1'と'7'は特に間違いやすいので注意深く読み取ってください。
+      - 該当する情報が見つからない場合は、その項目には必ずnullを返してください。
+      - 回答は必ず以下のJSON形式で、キーも英語のまま返してください。余計な説明は不要です。
+      
+      {
+        "mngId": "抽出した管理番号",
+        "productName": "抽出した商品名",
+        "origin": "抽出した産地",
+        "janCode": "抽出したJANコード"
+      }
+    `;
 
-  // AIに渡す画像データを準備
-  const imagePart = {
-    inlineData: {
-      mimeType: "image/jpeg",
-      data: data.imageData,
-    },
-  };
-
-  try {
-    // AIに画像と指示を送信し、結果を待つ
-    const response = await generativeModel.generateContent({
-      contents: [{role: "user", parts: [imagePart]}],
-      systemInstruction: {
-        role: "system",
-        parts: [{text: systemPrompt}],
-      },
-      generationConfig: {
-        responseMimeType: "application/json",
-      },
-    });
-
-    // AIからの返答を取得
-    const contentResponse = response.response;
-    const jsonString = contentResponse.candidates[0].content.parts[0].text;
-    const resultJson = JSON.parse(jsonString);
-
-    // 結果を呼び出し元（ブラウザ）に返す
-    return resultJson;
-  } catch (error) {
-    console.error("AIの解析中にエラーが発生しました:", error);
-    throw new functions.https.HttpsError(
-        "internal",
-        "AIの解析に失敗しました。",
-        error.message,
-    );
-  }
+    try {
+      const result = await model.generateContent([prompt, {
+        inlineData: {
+          data: imageBuffer.toString("base64"),
+          mimeType: "image/jpeg"
+        }
+      }]);
+      const response = result.response;
+      const text = response.text();
+      
+      // AIの返答からJSON部分のみを抽出する
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        return JSON.parse(jsonMatch[0]);
+      } else {
+        console.error("AIからの返答に有効なJSONが含まれていませんでした:", text);
+        throw new functions.https.HttpsError('internal', 'AIが有効な形式で応答しませんでした。');
+      }
+    } catch (error) {
+      console.error("Gemini APIの呼び出しでエラーが発生しました:", error);
+      throw new functions.https.HttpsError('internal', 'AIの解析中にエラーが発生しました。');
+    }
 });
 
