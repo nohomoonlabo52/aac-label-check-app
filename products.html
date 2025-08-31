@@ -3,16 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ラベルチェックアプリ 商品マスタ管理 v1.2.0</title>
+    <title>ラベルチェックアプリ 商品マスタ管理 v1.2.1</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Firebase SDKs -->
-    <script src="/__/firebase/10.12.2/firebase-app-compat.js"></script>
-    <script src="/__/firebase/10.12.2/firebase-auth-compat.js"></script>
-    <script src="/__/firebase/10.12.2/firebase-firestore-compat.js"></script>
-    <script src="/__/firebase/10.12.2/firebase-functions-compat.js"></script>
-    <!-- Firebase Init -->
-    <script src="/__/firebase/init.js"></script>
-
     <style>
         body { font-family: 'Inter', sans-serif; }
         .toast {
@@ -27,14 +19,14 @@
         .spinner { border: 4px solid rgba(0, 0, 0, 0.1); width: 24px; height: 24px; border-radius: 50%; border-left-color: #4f46e5; animation: spin 1s ease infinite; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         
-        /* ★★★ v1.2.0 追加 ★★★ */
         /* オートコンプリートのスタイル */
         .autocomplete-container { position: relative; }
         .autocomplete-items {
             position: absolute; border: 1px solid #d1d5db; border-top: none; z-index: 99;
             top: 100%; left: 0; right: 0; max-height: 200px; overflow-y: auto;
+            background-color: #fff;
         }
-        .autocomplete-items div { padding: 10px; cursor: pointer; background-color: #fff; }
+        .autocomplete-items div { padding: 10px; cursor: pointer; }
         .autocomplete-items div:hover { background-color: #e5e7eb; }
         .autocomplete-active { background-color: DodgerBlue !important; color: #ffffff; }
         .input-error { border-color: #ef4444 !important; }
@@ -71,14 +63,12 @@
                     </div>
                 </div>
 
-                <form id="add-product-form" autocomplete="off">
+                <form id="add-product-form" autocomplete="off" novalidate>
                     <h3 class="text-lg font-medium text-gray-800 mb-2 mt-6">2. 内容を確認・修正して追加</h3>
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <input type="text" id="productMngId" name="mngId" placeholder="管理番号 (自動入力)" required class="p-3 border border-gray-300 rounded-lg" maxlength="4">
                         <input type="text" id="productName" name="name" placeholder="商品名 (自動入力)" required class="p-3 border border-gray-300 rounded-lg">
                         
-                        <!-- ★★★ v1.2.0 変更 ★★★ -->
-                        <!-- オートコンプリート用のコンテナを追加 -->
                         <div class="autocomplete-container">
                             <input type="text" id="productOrigin" name="origin" placeholder="産地 (自動入力)" required class="p-3 border border-gray-300 rounded-lg w-full">
                         </div>
@@ -119,8 +109,13 @@
 
     <div id="toast-notification" class="toast"></div>
 
+    <!-- ★★★ v1.2.1 変更: Firebase SDKを新しいバージョン(v9+)に更新 ★★★ -->
     <script type="module">
-        // --- DOM要素の取得 (変更なし) ---
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+        import { getFirestore, collection, getDocs, addDoc, deleteDoc, doc, orderBy, query } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+        import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+        import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-functions.js";
+
         const dbStatusIndicator = document.getElementById('db-status-indicator');
         const loadingIndicator = document.getElementById('loading-indicator');
         const productTable = document.getElementById('product-table');
@@ -137,8 +132,6 @@
         const productOriginInput = document.getElementById('productOrigin');
         const productJanInput = document.getElementById('productJan');
 
-        // ★★★ v1.2.0 追加 ★★★
-        // 都道府県データ
         const prefectures = [
             {kanji: "北海道", hiragana: "ほっかいどう", romaji: "hokkaido"}, {kanji: "青森県", hiragana: "あおもりけん", romaji: "aomori"},
             {kanji: "岩手県", hiragana: "いわてけん", romaji: "iwate"}, {kanji: "宮城県", hiragana: "みやぎけん", romaji: "miyagi"},
@@ -166,18 +159,17 @@
             {kanji: "沖縄県", hiragana: "おきなわけん", romaji: "okinawa"}
         ];
         const prefectureKanjiNames = prefectures.map(p => p.kanji.replace(/[県府都]$/, ''));
+        
+        let db, functions;
 
-
-        // --- ユーティリティ関数 ---
         function showToast(message, isSuccess = true) {
             toastNotification.textContent = message;
             toastNotification.className = `toast show ${isSuccess ? 'success' : 'error'}`;
             setTimeout(() => { toastNotification.classList.remove('show'); }, 3000);
         }
 
-        // --- AI解析関数 (変更なし) ---
         async function analyzeLabelWithAI(base64ImageData) {
-            const analyzeLabel = firebase.functions().httpsCallable('analyzeLabel');
+            const analyzeLabel = httpsCallable(functions, 'analyzeLabel'); // 新しい呼び出し方
             try {
                 const result = await analyzeLabel({ imageData: base64ImageData });
                 return result.data;
@@ -187,7 +179,6 @@
             }
         }
 
-        // --- Firestore関連の関数 (変更なし) ---
         function renderProductList(products) {
             productList.innerHTML = '';
             if (products.length === 0) {
@@ -218,12 +209,13 @@
             productTable.classList.remove('hidden');
         }
 
-        async function loadProducts(db) {
+        async function loadProducts() {
             try {
                 loadingIndicator.classList.remove('hidden');
                 productTable.classList.add('hidden');
                 
-                const querySnapshot = await firebase.firestore().collection("products").orderBy("id").get();
+                const q = query(collection(db, "products"), orderBy("id"));
+                const querySnapshot = await getDocs(q);
                 const products = querySnapshot.docs.map(doc => ({ docId: doc.id, ...doc.data() }));
                 
                 renderProductList(products);
@@ -234,8 +226,6 @@
             }
         }
         
-        // ★★★ v1.2.0 追加 ★★★
-        // オートコンプリート機能
         function setupAutocomplete(inputEl, arr) {
             let currentFocus;
             inputEl.addEventListener("input", function(e) {
@@ -275,9 +265,7 @@
             });
         }
 
-
-        // --- アプリケーションの初期化とイベントリスナー設定 ---
-        function initializeEventListeners(db) {
+        function initializeEventListeners() {
             takePictureBtn.addEventListener('click', () => cameraInput.click());
 
             cameraInput.addEventListener('change', async (event) => {
@@ -296,11 +284,10 @@
                         const extractedData = await analyzeLabelWithAI(base64ImageData);
                         
                         if (extractedData) {
-                            document.getElementById('productMngId').value = extractedData.mngId || '';
+                            productMngIdInput.value = extractedData.mngId || '';
                             document.getElementById('productName').value = extractedData.productName || '';
-                            // ★★★ v1.2.0 変更 ★★★: 「産」を削除
-                            document.getElementById('productOrigin').value = (extractedData.origin || '').replace(/産$/, ''); 
-                            document.getElementById('productJan').value = extractedData.janCode || '';
+                            productOriginInput.value = (extractedData.origin || '').replace(/産$/, ''); 
+                            productJanInput.value = extractedData.janCode || '';
                             showToast("ラベル情報を自動入力しました。");
                         } else {
                            showToast("AIが情報を抽出できませんでした。手動で入力してください。", false);
@@ -315,8 +302,6 @@
                 reader.readAsDataURL(file);
             });
 
-            // ★★★ v1.2.0 追加 ★★★
-            // 管理番号のゼロパディング
             productMngIdInput.addEventListener('blur', (e) => {
                 const value = e.target.value;
                 if (value && value.length < 4) {
@@ -324,45 +309,37 @@
                 }
             });
             
-            // ★★★ v1.2.0 追加 ★★★
-            // JANコードの半角数字化
             productJanInput.addEventListener('input', (e) => {
                 const value = e.target.value;
                 e.target.value = value
-                    .replace(/[０-９]/g, (s) => String.fromCharCode(s.charCodeAt(0) - 0xFEE0)) // 全角数字を半角に
-                    .replace(/[^0-9]/g, ''); // 数字以外を削除
+                    .replace(/[０-９]/g, (s) => String.fromCharCode(s.charCodeAt(0) - 0xFEE0))
+                    .replace(/[^0-9]/g, '');
             });
 
             addProductForm.addEventListener('submit', async (e) => {
                 e.preventDefault();
                 
                 const inputs = {
-                    mngId: document.getElementById('productMngId'),
+                    mngId: productMngIdInput,
                     name: document.getElementById('productName'),
-                    origin: document.getElementById('productOrigin'),
-                    jan: document.getElementById('productJan'),
+                    origin: productOriginInput,
+                    jan: productJanInput,
                 };
 
-                // --- ★★★ v1.2.0 変更: バリデーションとデータ整形 ★★★ ---
                 let isValid = true;
                 Object.values(inputs).forEach(input => input.classList.remove('input-error'));
 
-                // JANコード整形
                 let janValue = inputs.jan.value
                     .replace(/[０-９]/g, (s) => String.fromCharCode(s.charCodeAt(0) - 0xFEE0))
                     .replace(/[^0-9]/g, '');
                 inputs.jan.value = janValue;
 
-                // 管理番号整形
                 let mngIdValue = inputs.mngId.value.padStart(4, '0');
                 inputs.mngId.value = mngIdValue;
                 
-                // 産地整形
                 let originValue = inputs.origin.value.replace(/産$/, '');
                 inputs.origin.value = originValue;
 
-
-                // バリデーションチェック
                 if (janValue.length !== 13) {
                     showToast("JANコードは13桁の半角数字で入力してください。", false);
                     inputs.jan.classList.add('input-error');
@@ -370,7 +347,7 @@
                 }
                 
                 const finalOrigin = originValue.replace(/[県府都]$/, '');
-                if (!prefectureKanjiNames.includes(finalOrigin)) {
+                if (!prefectureKanjiNames.includes(finalOrigin) && !prefectures.map(p=>p.kanji).includes(finalOrigin)) {
                      showToast("産地は日本の都道府県名を入力してください。", false);
                      inputs.origin.classList.add('input-error');
                      isValid = false;
@@ -382,10 +359,9 @@
                 submitProductBtn.textContent = '追加中...';
 
                 try {
-                    const productsCollection = firebase.firestore().collection("products");
-                    const productsSnapshot = await productsCollection.get();
+                    const productsCollection = collection(db, "products");
+                    const productsSnapshot = await getDocs(productsCollection);
                     
-                    // ★★★ v1.2.0 変更: 商品IDの自動採番 ★★★
                     const newIdNumber = productsSnapshot.size + 1;
                     const newProductId = 'p' + String(newIdNumber).padStart(4, '0');
 
@@ -398,11 +374,11 @@
                         labelImageUrl: document.getElementById('productLabelImageUrl').value,
                     };
 
-                    await productsCollection.add(newProduct);
+                    await addDoc(productsCollection, newProduct);
                     showToast("商品が正常に追加されました。");
                     addProductForm.reset();
                     imagePreviewContainer.classList.add('hidden');
-                    await loadProducts(db);
+                    await loadProducts();
                 } catch (error) {
                     console.error("商品の追加に失敗:", error);
                     showToast("商品の追加に失敗しました。", false);
@@ -417,9 +393,9 @@
                     const docId = e.target.dataset.id;
                     if (confirm("この商品を本当に削除しますか？")) {
                         try {
-                            await firebase.firestore().collection("products").doc(docId).delete();
+                            await deleteDoc(doc(db, "products", docId));
                             showToast("商品を削除しました。");
-                            await loadProducts(db);
+                            await loadProducts();
                         } catch (error) {
                             console.error("商品の削除に失敗:", error);
                             showToast("商品の削除に失敗しました。", false);
@@ -428,38 +404,42 @@
                 }
             });
             
-            // ★★★ v1.2.0 追加 ★★★
-            // 産地入力欄にオートコンプリートを設定
             setupAutocomplete(productOriginInput, prefectures);
         }
         
-        // --- メイン実行関数 (変更なし) ---
-        document.addEventListener('DOMContentLoaded', () => {
+        async function main() {
              try {
-                if (firebase.app()) {
-                    dbStatusIndicator.textContent = 'データベース接続: 正常';
-                    dbStatusIndicator.classList.add('text-green-600');
-                    
-                    const db = firebase.firestore();
-                    
-                    firebase.auth().signInAnonymously().then(() => {
-                        loadProducts(db);
-                        initializeEventListeners(db);
-                    }).catch(error => {
-                        console.error("匿名認証に失敗:", error);
-                        throw new Error("Authentication failed");
-                    });
+                // ★★★ v1.2.1 変更: Firebaseの初期化を新しい形式に ★★★
+                const firebaseConfig = {
+                    apiKey: "__API_KEY__",
+                    authDomain: "__AUTH_DOMAIN__",
+                    projectId: "__PROJECT_ID__",
+                    storageBucket: "__STORAGE_BUCKET__",
+                    messagingSenderId: "__MESSAGING_SENDER_ID__",
+                    appId: "__APP_ID__"
+                }; // この部分はFirebase Hostingによって自動で設定されます
+                const app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                functions = getFunctions(app, 'asia-northeast1'); // リージョンを指定
+                const auth = getAuth(app);
 
-                } else {
-                     throw new Error("Firebase is not initialized");
-                }
+                dbStatusIndicator.textContent = 'データベース接続: 正常';
+                dbStatusIndicator.classList.add('text-green-600');
+                
+                await signInAnonymously(auth);
+                await loadProducts();
+                initializeEventListeners();
+
             } catch (e) {
                 console.error("Firebaseの初期化またはデータ読み込みに失敗:", e);
                 dbStatusIndicator.textContent = 'データベース接続: エラー';
                 dbStatusIndicator.classList.add('text-red-600');
                 loadingIndicator.textContent = `データベースに接続できませんでした。設定を確認してください。`;
             }
-        });
+        }
+        
+        main();
     </script>
 </body>
 </html>
+
