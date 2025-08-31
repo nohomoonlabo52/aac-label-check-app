@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ラベルチェックアプリ 作業指示管理 v1.1.0</title>
+    <title>ラベルチェックアプリ 作業指示管理 v1.1.0a</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         body { font-family: 'Inter', sans-serif; }
@@ -97,9 +97,6 @@
         import { getFirestore, collection, getDocs, addDoc, deleteDoc, doc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
 
-        // This script assumes that the Firebase configuration object is available as `self.__FIREBASE_CONFIG__`
-        // This is often automatically provided by Firebase Hosting.
-
         document.addEventListener('DOMContentLoaded', () => {
             const dbStatusIndicator = document.getElementById('db-status-indicator');
             const loadingIndicator = document.getElementById('loading-indicator');
@@ -146,7 +143,7 @@
                     await loadWorkOrders();
 
                 } catch (error) {
-                    console.error("Failed to load initial data:", error);
+                    console.error("初期データの読み込みに失敗:", error);
                     showToast("マスタデータの読み込みに失敗しました。", false);
                     loadingIndicator.textContent = 'マスタデータの読み込みに失敗しました。';
                 }
@@ -169,7 +166,8 @@
                     const product = products.find(p => p.id === order.productId);
                     const material = materials.find(m => m.id === order.materialId);
                     const tr = document.createElement('tr');
-                    // MODIFICATION: Added 'whitespace-nowrap' to each 'td' to prevent text wrapping.
+                    
+                    // 【修正点2】各セルに whitespace-nowrap を追加し、テキストの折り返しを防止
                     tr.innerHTML = `
                         <td class="py-4 px-4 whitespace-nowrap">${order.orderId}</td>
                         <td class="py-4 px-4 whitespace-nowrap font-medium">${product ? product.name : '不明な製品'}</td>
@@ -189,10 +187,8 @@
             
             async function main() {
                 try {
-                    if (!self.__FIREBASE_CONFIG__) {
-                        throw new Error("Firebase config not found.");
-                    }
-                    const firebaseConfig = self.__FIREBASE_CONFIG__;
+                    // 【修正点1】`self.`を削除し、元の記述に戻す
+                    const firebaseConfig = __FIREBASE_CONFIG__;
                     const app = initializeApp(firebaseConfig);
                     db = getFirestore(app);
                     const auth = getAuth(app);
@@ -227,10 +223,10 @@
                             await addDoc(collection(db, "work_orders"), newOrder);
                             showToast("作業指示が正常に追加されました。");
                             addOrderForm.reset();
-                            calculateTotalPacks(); // Reset calculated field
+                            calculateTotalPacks(); // フォームリセット後に合計パック数もリセット
                             await loadWorkOrders();
                         } catch (error) {
-                            console.error("Failed to add work order:", error);
+                            console.error("作業指示の追加に失敗:", error);
                             showToast("作業指示の追加に失敗しました。", false);
                         } finally {
                             submitOrderBtn.disabled = false;
@@ -247,7 +243,7 @@
                                     showToast("作業指示を削除しました。");
                                     await loadWorkOrders();
                                 } catch (error) {
-                                    console.error("Failed to delete work order:", error);
+                                    console.error("作業指示の削除に失敗:", error);
                                     showToast("作業指示の削除に失敗しました。", false);
                                 }
                             }
@@ -258,7 +254,7 @@
                     packsPerCaseInput.addEventListener('input', calculateTotalPacks);
 
                 } catch (e) {
-                    console.error("Firebase initialization or data loading failed:", e);
+                    console.error("Firebaseの初期化またはデータ読み込みに失敗:", e);
                     dbStatusIndicator.textContent = 'データベース接続: エラー';
                     dbStatusIndicator.classList.add('text-red-600');
                     loadingIndicator.textContent = `データベースに接続できませんでした: ${e.message}`;
@@ -270,3 +266,4 @@
     </script>
 </body>
 </html>
+
