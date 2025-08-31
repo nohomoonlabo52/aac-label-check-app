@@ -3,11 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ラベルチェックアプリ 商品マスタ管理 v1.2.2</title>
+    <title>ラベルチェックアプリ 商品マスタ管理 v1.2.2a</title>
     <script src="https://cdn.tailwindcss.com"></script>
     
-    <!-- ★★★ v1.2.2 変更 ★★★ -->
-    <!-- Firebase SDKの読み込み順を変更し、init.jsを先にする -->
     <script src="/__/firebase/10.12.2/firebase-app-compat.js"></script>
     <script src="/__/firebase/10.12.2/firebase-auth-compat.js"></script>
     <script src="/__/firebase/10.12.2/firebase-firestore-compat.js"></script>
@@ -28,7 +26,6 @@
         .spinner { border: 4px solid rgba(0, 0, 0, 0.1); width: 24px; height: 24px; border-radius: 50%; border-left-color: #4f46e5; animation: spin 1s ease infinite; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         
-        /* オートコンプリートのスタイル */
         .autocomplete-container { position: relative; }
         .autocomplete-items {
             position: absolute; border: 1px solid #d1d5db; border-top: none; z-index: 99;
@@ -410,15 +407,11 @@
             setupAutocomplete(productOriginInput, prefectures);
         }
         
-        // ★★★ v1.2.2 変更: メイン処理の呼び出し方を修正 ★★★
         document.addEventListener('DOMContentLoaded', () => {
              try {
-                // Firebaseの準備が整っているかを確認してからメイン処理を開始
                 if (typeof firebase !== 'undefined' && firebase.app()) {
                     main();
                 } else {
-                    // もしまだ準備できていなければ、少し待ってから再試行する
-                    // (init.jsの読み込み完了を待つための安全策)
                     setTimeout(() => {
                         if (typeof firebase !== 'undefined' && firebase.app()) {
                             main();
@@ -435,11 +428,12 @@
             }
         });
 
-        // メイン処理を独立した関数に
         async function main() {
             try {
                 db = firebase.firestore();
-                functions = firebase.functions('asia-northeast1');
+                // ★★★ v1.2.2 修正点 ★★★
+                // リージョン指定を削除
+                functions = firebase.functions();
                 const auth = firebase.auth();
 
                 dbStatusIndicator.textContent = 'データベース接続: 正常';
