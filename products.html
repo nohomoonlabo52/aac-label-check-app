@@ -3,13 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ラベルチェックアプリ 商品マスタ管理 v1.2.7</title>
+    <title>ラベルチェックアプリ 商品マスタ管理 v1.1.0</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    
+    <!-- Firebase SDKs -->
     <script src="/__/firebase/10.12.2/firebase-app-compat.js"></script>
     <script src="/__/firebase/10.12.2/firebase-auth-compat.js"></script>
     <script src="/__/firebase/10.12.2/firebase-firestore-compat.js"></script>
-    <script src="/__/firebase/10.12.2/firebase-functions-compat.js"></script>
+    <script src="/__/firebase/10.12.2/firebase-functions-compat.js"></script> <!-- Functions SDK を追加 -->
+    <!-- Firebase Init -->
     <script src="/__/firebase/init.js"></script>
 
     <style>
@@ -25,17 +26,6 @@
         .thumbnail { width: 60px; height: 60px; object-fit: cover; }
         .spinner { border: 4px solid rgba(0, 0, 0, 0.1); width: 24px; height: 24px; border-radius: 50%; border-left-color: #4f46e5; animation: spin 1s ease infinite; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        
-        .autocomplete-container { position: relative; }
-        .autocomplete-items {
-            position: absolute; border: 1px solid #d1d5db; border-top: none; z-index: 99;
-            top: 100%; left: 0; right: 0; max-height: 200px; overflow-y: auto;
-            background-color: #fff;
-        }
-        .autocomplete-items div { padding: 10px; cursor: pointer; }
-        .autocomplete-items div:hover { background-color: #e5e7eb; }
-        .autocomplete-active { background-color: DodgerBlue !important; color: #ffffff; }
-        .input-error { border-color: #ef4444 !important; }
     </style>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -69,17 +59,13 @@
                     </div>
                 </div>
 
-                <form id="add-product-form" autocomplete="off" novalidate>
+                <form id="add-product-form">
                     <h3 class="text-lg font-medium text-gray-800 mb-2 mt-6">2. 内容を確認・修正して追加</h3>
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <input type="text" id="productMngId" name="mngId" placeholder="管理番号 (自動入力)" required class="p-3 border border-gray-300 rounded-lg" maxlength="4">
+                        <input type="text" id="productMngId" name="mngId" placeholder="管理番号 (自動入力)" required class="p-3 border border-gray-300 rounded-lg">
                         <input type="text" id="productName" name="name" placeholder="商品名 (自動入力)" required class="p-3 border border-gray-300 rounded-lg">
-                        
-                        <div class="autocomplete-container">
-                            <input type="text" id="productOrigin" name="origin" placeholder="産地 (自動入力)" required class="p-3 border border-gray-300 rounded-lg w-full">
-                        </div>
-                        
-                        <input type="text" id="productJan" name="jan" placeholder="JANコード (自動入力)" required class="p-3 border border-gray-300 rounded-lg" maxlength="13">
+                        <input type="text" id="productOrigin" name="origin" placeholder="産地 (自動入力)" required class="p-3 border border-gray-300 rounded-lg">
+                        <input type="text" id="productJan" name="jan" placeholder="JANコード (自動入力)" required class="p-3 border border-gray-300 rounded-lg">
                         <input type="url" id="productLabelImageUrl" name="labelImageUrl" placeholder="ラベル画像URL (任意)" class="p-3 border border-gray-300 rounded-lg md:col-span-2">
                         <button type="submit" id="submit-product-btn" class="w-full bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-4 rounded-lg transition-colors md:col-span-2">
                             商品を追加する
@@ -116,6 +102,7 @@
     <div id="toast-notification" class="toast"></div>
 
     <script type="module">
+        // DOM要素の取得
         const dbStatusIndicator = document.getElementById('db-status-indicator');
         const loadingIndicator = document.getElementById('loading-indicator');
         const productTable = document.getElementById('product-table');
@@ -128,111 +115,28 @@
         const imagePreviewContainer = document.getElementById('image-preview-container');
         const imagePreview = document.getElementById('imagePreview');
         const aiLoading = document.getElementById('ai-loading');
-        const productMngIdInput = document.getElementById('productMngId');
-        const productNameInput = document.getElementById('productName');
-        const productOriginInput = document.getElementById('productOrigin');
-        const productJanInput = document.getElementById('productJan');
-
-        const prefectures = [
-            {kanji: "北海道", hiragana: "ほっかいどう", romaji: "hokkaido"}, {kanji: "青森県", hiragana: "あおもりけん", romaji: "aomori"},
-            {kanji: "岩手県", hiragana: "いわてけん", romaji: "iwate"}, {kanji: "宮城県", hiragana: "みやぎけん", romaji: "miyagi"},
-            {kanji: "秋田県", hiragana: "あきたけん", romaji: "akita"}, {kanji: "山形県", hiragana: "やまがたけん", romaji: "yamagata"},
-            {kanji: "福島県", hiragana: "ふくしまけん", romaji: "fukushima"}, {kanji: "茨城県", hiragana: "いばらきけん", romaji: "ibaraki"},
-            {kanji: "栃木県", hiragana: "とちぎけん", romaji: "tochigi"}, {kanji: "群馬県", hiragana: "ぐんまけん", romaji: "gunma"},
-            {kanji: "埼玉県", hiragana: "さいたまけん", romaji: "saitama"}, {kanji: "千葉県", hiragana: "ちばけん", romaji: "chiba"},
-            {kanji: "東京都", hiragana: "とうきょうと", romaji: "tokyo"}, {kanji: "神奈川県", hiragana: "かながわけん", romaji: "kanagawa"},
-            {kanji: "新潟県", hiragana: "にいがたけん", romaji: "niigata"}, {kanji: "富山県", hiragana: "とやまけん", romaji: "toyama"},
-            {kanji: "石川県", hiragana: "いしかわけん", romaji: "ishikawa"}, {kanji: "福井県", hiragana: "ふくいけん", romaji: "fukui"},
-            {kanji: "山梨県", hiragana: "やまなしけん", romaji: "yamanashi"}, {kanji: "長野県", hiragana: "ながのけん", romaji: "nagano"},
-            {kanji: "岐阜県", hiragana: "ぎふけん", romaji: "gifu"}, {kanji: "静岡県", hiragana: "しずおかけん", romaji: "shizuoka"},
-            {kanji: "愛知県", hiragana: "あいちけん", romaji: "aichi"}, {kanji: "三重県", hiragana: "みえけん", romaji: "mie"},
-            {kanji: "滋賀県", hiragana: "しがけん", romaji: "shiga"}, {kanji: "京都府", hiragana: "きょうとふ", romaji: "kyoto"},
-            {kanji: "大阪府", hiragana: "おおさかふ", romaji: "osaka"}, {kanji: "兵庫県", hiragana: "ひょうごけん", romaji: "hyogo"},
-            {kanji: "奈良県", hiragana: "ならけん", romaji: "nara"}, {kanji: "和歌山県", hiragana: "わかやまけん", romaji: "wakayama"},
-            {kanji: "鳥取県", hiragana: "とっとりけん", romaji: "tottori"}, {kanji: "島根県", hiragana: "しまねけん", romaji: "shimane"},
-            {kanji: "岡山県", hiragana: "おかやまけん", romaji: "okayama"}, {kanji: "広島県", hiragana: "ひろしまけん", romaji: "hiroshima"},
-            {kanji: "山口県", hiragana: "やまぐちけん", romaji: "yamaguchi"}, {kanji: "徳島県", hiragana: "とくしまけん", romaji: "tokushima"},
-            {kanji: "香川県", hiragana: "かがわけん", romaji: "kagawa"}, {kanji: "愛媛県", hiragana: "えひめけん", romaji: "ehime"},
-            {kanji: "高知県", hiragana: "こうちけん", romaji: "kochi"}, {kanji: "福岡県", hiragana: "ふくおかけん", romaji: "fukuoka"},
-            {kanji: "佐賀県", hiragana: "さがけん", romaji: "saga"}, {kanji: "長崎県", hiragana: "ながさきけん", romaji: "nagasaki"},
-            {kanji: "熊本県", hiragana: "くまもとけん", romaji: "kumamoto"}, {kanji: "大分県", hiragana: "おおいたけん", romaji: "oita"},
-            {kanji: "宮崎県", hiragana: "みやざきけん", romaji: "miyazaki"}, {kanji: "鹿児島県", hiragana: "かごしまけん", romaji: "kagoshima"},
-            {kanji: "沖縄県", hiragana: "おきなわけん", romaji: "okinawa"}
-        ];
-        const prefectureKanjiNames = prefectures.map(p => p.kanji.replace(/[県府都]$/, ''));
         
-        let db, functions;
-
+        // --- ユーティリティ関数 ---
         function showToast(message, isSuccess = true) {
             toastNotification.textContent = message;
             toastNotification.className = `toast show ${isSuccess ? 'success' : 'error'}`;
             setTimeout(() => { toastNotification.classList.remove('show'); }, 3000);
         }
-
+        
+        // --- AI解析関数 (Cloud Functionを呼び出すように変更) ---
         async function analyzeLabelWithAI(base64ImageData) {
+            // デプロイしたCloud Function 'analyzeLabel' を呼び出す
             const analyzeLabel = firebase.functions().httpsCallable('analyzeLabel');
             try {
                 const result = await analyzeLabel({ imageData: base64ImageData });
-                return result.data; // AIからの返り値は { rawText: "..." }
+                return result.data; // Cloud Functionからの返り値 (JSONオブジェクト)
             } catch (error) {
                 console.error("Cloud Functionの呼び出しに失敗:", error);
                 throw new Error("AI解析サーバーとの通信に失敗しました。");
             }
         }
 
-        // ★★★ v1.2.7 変更点 ★★★
-        // AIが返したテキスト全体を解析し、各項目に仕分ける関数
-        function parseRawTextForProduct(text) {
-            const lines = text.split('\n').map(line => line.trim().replace(/[\s　]/g, '')).filter(line => line);
-            let mngId = null;
-            let productName = null;
-            let origin = null;
-            let janCode = null;
-            let remainingLines = [...lines];
-
-            // 1. JANコード (13桁の数字) を探す
-            const janRegex = /^(49|45)\d{11}$/;
-            remainingLines = remainingLines.filter(line => {
-                if (janRegex.test(line) && !janCode) {
-                    janCode = line;
-                    return false;
-                }
-                return true;
-            });
-
-            // 2. 産地 (都道府県名) を探す
-            const prefecturesForRegex = prefectures.map(p => p.kanji.replace(/[県府都]$/, '')).join('|');
-            const originRegex = new RegExp(`^(${prefecturesForRegex})(県|府|都|産)?$`);
-             remainingLines = remainingLines.filter(line => {
-                if (originRegex.test(line) && !origin) {
-                    origin = line;
-                    return false;
-                }
-                return true;
-            });
-
-            // 3. 管理番号 (3-4桁の数字) を探す
-            const mngIdRegex = /^\d{3,4}$/;
-            remainingLines = remainingLines.filter(line => {
-                 if (mngIdRegex.test(line) && !mngId) {
-                    mngId = line;
-                    return false;
-                 }
-                 return true;
-            });
-            
-            // 4. 残ったものから商品名らしいものを探す (カタカナ、ひらがな、漢字を含む行を優先)
-            const productNameCandidates = remainingLines.filter(line => /[ァ-ンぁ-ん一-龯]/.test(line));
-            if (productNameCandidates.length > 0) {
-                productName = productNameCandidates[0]; // 最初の候補を採用
-                remainingLines = remainingLines.filter(line => line !== productName);
-            } else if (remainingLines.length > 0) {
-                productName = remainingLines[0]; // 候補がなければ最初の行を採用
-            }
-
-            return { mngId, productName, origin, janCode };
-        }
-
+        // --- Firestore関連の関数 ---
         function renderProductList(products) {
             productList.innerHTML = '';
             if (products.length === 0) {
@@ -263,13 +167,12 @@
             productTable.classList.remove('hidden');
         }
 
-        async function loadProducts() {
+        async function loadProducts(db) {
             try {
                 loadingIndicator.classList.remove('hidden');
                 productTable.classList.add('hidden');
                 
-                const q = firebase.firestore().collection("products").orderBy("id");
-                const querySnapshot = await q.get();
+                const querySnapshot = await firebase.firestore().collection("products").get();
                 const products = querySnapshot.docs.map(doc => ({ docId: doc.id, ...doc.data() }));
                 
                 renderProductList(products);
@@ -279,47 +182,9 @@
                 loadingIndicator.textContent = '商品データの読み込みに失敗しました。';
             }
         }
-        
-        function setupAutocomplete(inputEl, arr) {
-            let currentFocus;
-            inputEl.addEventListener("input", function(e) {
-                let a, b, i, val = this.value;
-                closeAllLists();
-                if (!val) { return false;}
-                currentFocus = -1;
-                a = document.createElement("DIV");
-                a.setAttribute("id", this.id + "autocomplete-list");
-                a.setAttribute("class", "autocomplete-items");
-                this.parentNode.appendChild(a);
-                
-                for (i = 0; i < arr.length; i++) {
-                    const pref = arr[i];
-                    if (pref.kanji.startsWith(val) || pref.hiragana.startsWith(val) || pref.romaji.startsWith(val.toLowerCase())) {
-                        b = document.createElement("DIV");
-                        b.innerHTML = `<strong>${pref.kanji.substr(0, val.length)}</strong>${pref.kanji.substr(val.length)}`;
-                        b.innerHTML += `<input type='hidden' value='${pref.kanji}'>`;
-                        b.addEventListener("click", function(e) {
-                            inputEl.value = this.getElementsByTagName("input")[0].value;
-                            closeAllLists();
-                        });
-                        a.appendChild(b);
-                    }
-                }
-            });
-            function closeAllLists(elmnt) {
-                var x = document.getElementsByClassName("autocomplete-items");
-                for (var i = 0; i < x.length; i++) {
-                    if (elmnt != x[i] && elmnt != inputEl) {
-                        x[i].parentNode.removeChild(x[i]);
-                    }
-                }
-            }
-            document.addEventListener("click", function (e) {
-                closeAllLists(e.target);
-            });
-        }
 
-        function initializeEventListeners() {
+        // --- アプリケーションの初期化とイベントリスナー設定 ---
+        function initializeEventListeners(db) {
             takePictureBtn.addEventListener('click', () => cameraInput.click());
 
             cameraInput.addEventListener('change', async (event) => {
@@ -335,17 +200,16 @@
                     
                     try {
                         const base64ImageData = imageUrl.split(',')[1];
-                        const result = await analyzeLabelWithAI(base64ImageData);
+                        const extractedData = await analyzeLabelWithAI(base64ImageData);
                         
-                        if (result && result.rawText) {
-                            const parsedData = parseRawTextForProduct(result.rawText);
-                            productMngIdInput.value = parsedData.mngId || '';
-                            productNameInput.value = parsedData.productName || '';
-                            productOriginInput.value = (parsedData.origin || '').replace(/産$/, ''); 
-                            productJanInput.value = parsedData.janCode || '';
+                        if (extractedData) {
+                            document.getElementById('productMngId').value = extractedData.mngId || '';
+                            document.getElementById('productName').value = extractedData.productName || '';
+                            document.getElementById('productOrigin').value = extractedData.origin || '';
+                            document.getElementById('productJan').value = extractedData.janCode || '';
                             showToast("ラベル情報を自動入力しました。");
                         } else {
-                           showToast("AIがテキストを認識できませんでした。手動で入力してください。", false);
+                           showToast("AIが情報を抽出できませんでした。手動で入力してください。", false);
                         }
                     } catch (error) {
                         console.error("AI解析エラー:", error);
@@ -357,73 +221,23 @@
                 reader.readAsDataURL(file);
             });
 
-            productMngIdInput.addEventListener('blur', (e) => {
-                const value = e.target.value;
-                if (value && value.length < 4) {
-                    e.target.value = value.padStart(4, '0');
-                }
-            });
-            
-            productJanInput.addEventListener('input', (e) => {
-                const value = e.target.value;
-                e.target.value = value
-                    .replace(/[０-９]/g, (s) => String.fromCharCode(s.charCodeAt(0) - 0xFEE0))
-                    .replace(/[^0-9]/g, '');
-            });
-
             addProductForm.addEventListener('submit', async (e) => {
                 e.preventDefault();
-                
-                const inputs = {
-                    mngId: productMngIdInput,
-                    name: productNameInput,
-                    origin: productOriginInput,
-                    jan: productJanInput,
-                };
-
-                let isValid = true;
-                Object.values(inputs).forEach(input => input.classList.remove('input-error'));
-
-                let janValue = inputs.jan.value.replace(/[^0-9]/g, '');
-                inputs.jan.value = janValue;
-
-                let mngIdValue = inputs.mngId.value.padStart(4, '0');
-                inputs.mngId.value = mngIdValue;
-                
-                let originValue = inputs.origin.value.replace(/産$/, '');
-                inputs.origin.value = originValue;
-
-                if (janValue.length !== 13) {
-                    showToast("JANコードは13桁の半角数字で入力してください。", false);
-                    inputs.jan.classList.add('input-error');
-                    isValid = false;
-                }
-                
-                const finalOrigin = originValue.replace(/[県府都]$/, '');
-                if (!prefectureKanjiNames.includes(finalOrigin) && !prefectures.map(p=>p.kanji).includes(originValue)) {
-                     showToast("産地は日本の都道府県名を入力してください。", false);
-                     inputs.origin.classList.add('input-error');
-                     isValid = false;
-                }
-                
-                if (!isValid) return;
-                
                 submitProductBtn.disabled = true;
                 submitProductBtn.textContent = '追加中...';
 
                 try {
                     const productsCollection = firebase.firestore().collection("products");
                     const productsSnapshot = await productsCollection.get();
-                    
                     const newIdNumber = productsSnapshot.size + 1;
                     const newProductId = 'p' + String(newIdNumber).padStart(4, '0');
 
                     const newProduct = {
                         id: newProductId,
-                        mngId: mngIdValue,
-                        name: inputs.name.value,
-                        origin: originValue,
-                        jan: janValue,
+                        mngId: document.getElementById('productMngId').value,
+                        name: document.getElementById('productName').value,
+                        origin: document.getElementById('productOrigin').value,
+                        jan: document.getElementById('productJan').value,
                         labelImageUrl: document.getElementById('productLabelImageUrl').value,
                     };
 
@@ -431,7 +245,7 @@
                     showToast("商品が正常に追加されました。");
                     addProductForm.reset();
                     imagePreviewContainer.classList.add('hidden');
-                    await loadProducts();
+                    await loadProducts(db);
                 } catch (error) {
                     console.error("商品の追加に失敗:", error);
                     showToast("商品の追加に失敗しました。", false);
@@ -448,7 +262,7 @@
                         try {
                             await firebase.firestore().collection("products").doc(docId).delete();
                             showToast("商品を削除しました。");
-                            await loadProducts();
+                            await loadProducts(db);
                         } catch (error) {
                             console.error("商品の削除に失敗:", error);
                             showToast("商品の削除に失敗しました。", false);
@@ -456,52 +270,35 @@
                     }
                 }
             });
-            
-            setupAutocomplete(productOriginInput, prefectures);
         }
         
+        // --- メイン実行関数 ---
         document.addEventListener('DOMContentLoaded', () => {
              try {
-                if (typeof firebase !== 'undefined' && firebase.app()) {
-                    main();
+                if (firebase.app()) {
+                    dbStatusIndicator.textContent = 'データベース接続: 正常';
+                    dbStatusIndicator.classList.add('text-green-600');
+                    
+                    const db = firebase.firestore();
+                    
+                    firebase.auth().signInAnonymously().then(() => {
+                        loadProducts(db);
+                        initializeEventListeners(db);
+                    }).catch(error => {
+                        console.error("匿名認証に失敗:", error);
+                        throw new Error("Authentication failed");
+                    });
+
                 } else {
-                    setTimeout(() => {
-                        if (typeof firebase !== 'undefined' && firebase.app()) {
-                            main();
-                        } else {
-                            throw new Error("Firebase is not initialized");
-                        }
-                    }, 500);
+                     throw new Error("Firebase is not initialized");
                 }
             } catch (e) {
-                console.error("Firebaseの初期化に失敗:", e);
+                console.error("Firebaseの初期化またはデータ読み込みに失敗:", e);
                 dbStatusIndicator.textContent = 'データベース接続: エラー';
                 dbStatusIndicator.classList.add('text-red-600');
                 loadingIndicator.textContent = `データベースに接続できませんでした。設定を確認してください。`;
             }
         });
-
-        async function main() {
-            try {
-                db = firebase.firestore();
-                functions = firebase.functions();
-                const auth = firebase.auth();
-
-                dbStatusIndicator.textContent = 'データベース接続: 正常';
-                dbStatusIndicator.classList.add('text-green-600');
-                
-                await auth.signInAnonymously();
-                await loadProducts();
-                initializeEventListeners();
-
-            } catch(e) {
-                 console.error("メイン処理でエラー:", e);
-                 dbStatusIndicator.textContent = 'データベース接続: エラー';
-                 dbStatusIndicator.classList.add('text-red-600');
-                 loadingIndicator.textContent = `データベースに接続できませんでした。`;
-            }
-        }
     </script>
 </body>
 </html>
-
