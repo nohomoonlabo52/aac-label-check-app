@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ラベルチェックアプリ 商品マスタ管理 v1.2.4</title>
+    <title>ラベルチェックアプリ 商品マスタ管理 v1.2.5</title>
     <script src="https://cdn.tailwindcss.com"></script>
     
     <script src="/__/firebase/10.12.2/firebase-app-compat.js"></script>
@@ -129,6 +129,7 @@
         const imagePreview = document.getElementById('imagePreview');
         const aiLoading = document.getElementById('ai-loading');
         const productMngIdInput = document.getElementById('productMngId');
+        const productNameInput = document.getElementById('productName');
         const productOriginInput = document.getElementById('productOrigin');
         const productJanInput = document.getElementById('productJan');
 
@@ -177,6 +178,58 @@
                 console.error("Cloud Functionの呼び出しに失敗:", error);
                 throw new Error("AI解析サーバーとの通信に失敗しました。");
             }
+        }
+
+        // ★★★ v1.2.5 追加 ★★★
+        function parseRawTextForProduct(text) {
+            const lines = text.split('\n').map(line => line.trim().replace(/[\s　]/g, '')).filter(line => line);
+            let mngId = null;
+            let productName = null;
+            let origin = null;
+            let janCode = null;
+            let remainingLines = [...lines];
+
+            // 1. JANコード (13桁の数字) を探す
+            const janRegex = /^(49|45)\d{11}$/;
+            remainingLines = remainingLines.filter(line => {
+                if (janRegex.test(line) && !janCode) {
+                    janCode = line;
+                    return false;
+                }
+                return true;
+            });
+
+            // 2. 産地 (都道府県名) を探す
+            const prefecturesForRegex = prefectures.map(p => p.kanji.replace(/[県府都]$/, '')).join('|');
+            const originRegex = new RegExp(`^(${prefecturesForRegex})(県|府|都|産)?$`);
+             remainingLines = remainingLines.filter(line => {
+                if (originRegex.test(line) && !origin) {
+                    origin = line;
+                    return false;
+                }
+                return true;
+            });
+
+            // 3. 管理番号 (3-4桁の数字) を探す
+            const mngIdRegex = /^\d{3,4}$/;
+            remainingLines = remainingLines.filter(line => {
+                 if (mngIdRegex.test(line) && !mngId) {
+                    mngId = line;
+                    return false;
+                 }
+                 return true;
+            });
+            
+            // 4. 残ったものから商品名らしいものを探す (カタカナ、ひらがな、漢字を含む行を優先)
+            const productNameCandidates = remainingLines.filter(line => /[ァ-ンぁ-ん一-龯]/.test(line));
+            if (productNameCandidates.length > 0) {
+                productName = productNameCandidates[0]; // 最初の候補を採用
+                remainingLines = remainingLines.filter(line => line !== productName);
+            } else if (remainingLines.length > 0) {
+                productName = remainingLines[0]; // 候補がなければ最初の行を採用
+            }
+
+            return { mngId, productName, origin, janCode };
         }
 
         function renderProductList(products) {
@@ -281,16 +334,17 @@
                     
                     try {
                         const base64ImageData = imageUrl.split(',')[1];
-                        const extractedData = await analyzeLabelWithAI(base64ImageData);
+                        const result = await analyzeLabelWithAI(base64ImageData);
                         
-                        if (extractedData) {
-                            productMngIdInput.value = extractedData.mngId || '';
-                            document.getElementById('productName').value = extractedData.productName || '';
-                            productOriginInput.value = (extractedData.origin || '').replace(/産$/, ''); 
-                            productJanInput.value = extractedData.janCode || '';
+                        if (result && result.rawText) {
+                            const parsedData = parseRawTextForProduct(result.rawText);
+                            productMngIdInput.value = parsedData.mngId || '';
+                            productNameInput.value = parsedData.productName || '';
+                            productOriginInput.value = (parsedData.origin || '').replace(/産$/, ''); 
+                            productJanInput.value = parsedData.janCode || '';
                             showToast("ラベル情報を自動入力しました。");
                         } else {
-                           showToast("AIが情報を抽出できませんでした。手動で入力してください。", false);
+                           showToast("AIがテキストを認識できませんでした。手動で入力してください。", false);
                         }
                     } catch (error) {
                         console.error("AI解析エラー:", error);
@@ -321,7 +375,7 @@
                 
                 const inputs = {
                     mngId: productMngIdInput,
-                    name: document.getElementById('productName'),
+                    name: productNameInput,
                     origin: productOriginInput,
                     jan: productJanInput,
                 };
@@ -329,9 +383,7 @@
                 let isValid = true;
                 Object.values(inputs).forEach(input => input.classList.remove('input-error'));
 
-                let janValue = inputs.jan.value
-                    .replace(/[０-９]/g, (s) => String.fromCharCode(s.charCodeAt(0) - 0xFEE0))
-                    .replace(/[^0-9]/g, '');
+                let janValue = inputs.jan.value.replace(/[^0-9]/g, '');
                 inputs.jan.value = janValue;
 
                 let mngIdValue = inputs.mngId.value.padStart(4, '0');
@@ -431,8 +483,6 @@
         async function main() {
             try {
                 db = firebase.firestore();
-                // ★★★ v1.2.2 修正点 ★★★
-                // リージョン指定を削除
                 functions = firebase.functions();
                 const auth = firebase.auth();
 
