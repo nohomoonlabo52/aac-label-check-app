@@ -3,8 +3,17 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ラベルチェックアプリ 商品マスタ管理 v1.2.1</title>
+    <title>ラベルチェックアプリ 商品マスタ管理 v1.2.2</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- ★★★ v1.2.2 変更 ★★★ -->
+    <!-- Firebase SDKの読み込み順を変更し、init.jsを先にする -->
+    <script src="/__/firebase/10.12.2/firebase-app-compat.js"></script>
+    <script src="/__/firebase/10.12.2/firebase-auth-compat.js"></script>
+    <script src="/__/firebase/10.12.2/firebase-firestore-compat.js"></script>
+    <script src="/__/firebase/10.12.2/firebase-functions-compat.js"></script>
+    <script src="/__/firebase/init.js"></script>
+
     <style>
         body { font-family: 'Inter', sans-serif; }
         .toast {
@@ -109,13 +118,7 @@
 
     <div id="toast-notification" class="toast"></div>
 
-    <!-- ★★★ v1.2.1 変更: Firebase SDKを新しいバージョン(v9+)に更新 ★★★ -->
     <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-        import { getFirestore, collection, getDocs, addDoc, deleteDoc, doc, orderBy, query } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-        import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-        import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-functions.js";
-
         const dbStatusIndicator = document.getElementById('db-status-indicator');
         const loadingIndicator = document.getElementById('loading-indicator');
         const productTable = document.getElementById('product-table');
@@ -169,7 +172,7 @@
         }
 
         async function analyzeLabelWithAI(base64ImageData) {
-            const analyzeLabel = httpsCallable(functions, 'analyzeLabel'); // 新しい呼び出し方
+            const analyzeLabel = firebase.functions().httpsCallable('analyzeLabel');
             try {
                 const result = await analyzeLabel({ imageData: base64ImageData });
                 return result.data;
@@ -214,8 +217,8 @@
                 loadingIndicator.classList.remove('hidden');
                 productTable.classList.add('hidden');
                 
-                const q = query(collection(db, "products"), orderBy("id"));
-                const querySnapshot = await getDocs(q);
+                const q = firebase.firestore().collection("products").orderBy("id");
+                const querySnapshot = await q.get();
                 const products = querySnapshot.docs.map(doc => ({ docId: doc.id, ...doc.data() }));
                 
                 renderProductList(products);
@@ -347,7 +350,7 @@
                 }
                 
                 const finalOrigin = originValue.replace(/[県府都]$/, '');
-                if (!prefectureKanjiNames.includes(finalOrigin) && !prefectures.map(p=>p.kanji).includes(finalOrigin)) {
+                if (!prefectureKanjiNames.includes(finalOrigin) && !prefectures.map(p=>p.kanji).includes(originValue)) {
                      showToast("産地は日本の都道府県名を入力してください。", false);
                      inputs.origin.classList.add('input-error');
                      isValid = false;
@@ -359,8 +362,8 @@
                 submitProductBtn.textContent = '追加中...';
 
                 try {
-                    const productsCollection = collection(db, "products");
-                    const productsSnapshot = await getDocs(productsCollection);
+                    const productsCollection = firebase.firestore().collection("products");
+                    const productsSnapshot = await productsCollection.get();
                     
                     const newIdNumber = productsSnapshot.size + 1;
                     const newProductId = 'p' + String(newIdNumber).padStart(4, '0');
@@ -374,7 +377,7 @@
                         labelImageUrl: document.getElementById('productLabelImageUrl').value,
                     };
 
-                    await addDoc(productsCollection, newProduct);
+                    await productsCollection.add(newProduct);
                     showToast("商品が正常に追加されました。");
                     addProductForm.reset();
                     imagePreviewContainer.classList.add('hidden');
@@ -393,7 +396,7 @@
                     const docId = e.target.dataset.id;
                     if (confirm("この商品を本当に削除しますか？")) {
                         try {
-                            await deleteDoc(doc(db, "products", docId));
+                            await firebase.firestore().collection("products").doc(docId).delete();
                             showToast("商品を削除しました。");
                             await loadProducts();
                         } catch (error) {
@@ -407,38 +410,52 @@
             setupAutocomplete(productOriginInput, prefectures);
         }
         
-        async function main() {
+        // ★★★ v1.2.2 変更: メイン処理の呼び出し方を修正 ★★★
+        document.addEventListener('DOMContentLoaded', () => {
              try {
-                // ★★★ v1.2.1 変更: Firebaseの初期化を新しい形式に ★★★
-                const firebaseConfig = {
-                    apiKey: "__API_KEY__",
-                    authDomain: "__AUTH_DOMAIN__",
-                    projectId: "__PROJECT_ID__",
-                    storageBucket: "__STORAGE_BUCKET__",
-                    messagingSenderId: "__MESSAGING_SENDER_ID__",
-                    appId: "__APP_ID__"
-                }; // この部分はFirebase Hostingによって自動で設定されます
-                const app = initializeApp(firebaseConfig);
-                db = getFirestore(app);
-                functions = getFunctions(app, 'asia-northeast1'); // リージョンを指定
-                const auth = getAuth(app);
-
-                dbStatusIndicator.textContent = 'データベース接続: 正常';
-                dbStatusIndicator.classList.add('text-green-600');
-                
-                await signInAnonymously(auth);
-                await loadProducts();
-                initializeEventListeners();
-
+                // Firebaseの準備が整っているかを確認してからメイン処理を開始
+                if (typeof firebase !== 'undefined' && firebase.app()) {
+                    main();
+                } else {
+                    // もしまだ準備できていなければ、少し待ってから再試行する
+                    // (init.jsの読み込み完了を待つための安全策)
+                    setTimeout(() => {
+                        if (typeof firebase !== 'undefined' && firebase.app()) {
+                            main();
+                        } else {
+                            throw new Error("Firebase is not initialized");
+                        }
+                    }, 500);
+                }
             } catch (e) {
-                console.error("Firebaseの初期化またはデータ読み込みに失敗:", e);
+                console.error("Firebaseの初期化に失敗:", e);
                 dbStatusIndicator.textContent = 'データベース接続: エラー';
                 dbStatusIndicator.classList.add('text-red-600');
                 loadingIndicator.textContent = `データベースに接続できませんでした。設定を確認してください。`;
             }
+        });
+
+        // メイン処理を独立した関数に
+        async function main() {
+            try {
+                db = firebase.firestore();
+                functions = firebase.functions('asia-northeast1');
+                const auth = firebase.auth();
+
+                dbStatusIndicator.textContent = 'データベース接続: 正常';
+                dbStatusIndicator.classList.add('text-green-600');
+                
+                await auth.signInAnonymously();
+                await loadProducts();
+                initializeEventListeners();
+
+            } catch(e) {
+                 console.error("メイン処理でエラー:", e);
+                 dbStatusIndicator.textContent = 'データベース接続: エラー';
+                 dbStatusIndicator.classList.add('text-red-600');
+                 loadingIndicator.textContent = `データベースに接続できませんでした。`;
+            }
         }
-        
-        main();
     </script>
 </body>
 </html>
