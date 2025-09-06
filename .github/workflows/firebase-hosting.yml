@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - develop
+      - staging
 
 jobs:
   # 本番環境へのデプロイ用ジョブ
