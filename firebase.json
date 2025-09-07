@@ -5,6 +5,7 @@
       "firebase.json",
       "**/.*",
       "**/node_modules/**"
+      "_backup/**"  // このフォルダはバックアップ用なのでfirebase deployで除外する
     ]
   },
   "functions": [
