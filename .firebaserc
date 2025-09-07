@@ -1,5 +1,9 @@
 {
   "projects": {
-    "default": "aac-label-check-app"
-  }
+    "default": "aac-label-check-app",
+    "staging": "aac-label-check-app-demo",  
+    "develop": "aac-label-check-app-dev"
+    },
+  "targets": {},
+  "etags": {}
 }
