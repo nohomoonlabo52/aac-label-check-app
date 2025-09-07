@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ラベルチェックアプリ 商品マスタ管理 v1.1.2</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Firebase SDKs -->
+    <script src="/__/firebase/10.12.2/firebase-app-compat.js"></script>
+    <script src="/__/firebase/10.12.2/firebase-auth-compat.js"></script>
+    <script src="/__/firebase/10.12.2/firebase-firestore-compat.js"></script>
+    <script src="/__/firebase/10.12.2/firebase-functions-compat.js"></script>
+    <!-- Firebase Init -->
+    <script src="/__/firebase/init.js"></script>
+
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .toast {
+            position: fixed; bottom: 20px; right: 20px; padding: 1rem 1.5rem;
+            border-radius: 0.5rem; color: white; opacity: 0;
+            transition: opacity 0.3s ease-in-out; z-index: 100;
+        }
+        .toast.show { opacity: 1; }
+        .toast.success { background-color: #28a745; }
+        .toast.error { background-color: #dc3545; }
+        .thumbnail { width: 60px; height: 60px; object-fit: cover; }
+        .spinner { border: 4px solid rgba(0, 0, 0, 0.1); width: 24px; height: 24px; border-radius: 50%; border-left-color: #4f46e5; animation: spin 1s ease infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        
+        /* オートコンプリート用のスタイル */
+        .autocomplete-container { position: relative; }
+        .autocomplete-items {
+            position: absolute; border: 1px solid #d4d4d4; border-bottom: none;
+            border-top: none; z-index: 99; top: 100%; left: 0; right: 0;
+            max-height: 200px; overflow-y: auto;
+        }
+        .autocomplete-items div {
+            padding: 10px; cursor: pointer; background-color: #fff;
+            border-bottom: 1px solid #d4d4d4;
+        }
+        .autocomplete-items div:hover { background-color: #e9e9e9; }
+        .autocomplete-active { background-color: DodgerBlue !important; color: #ffffff; }
+    </style>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+</head>
+<body class="bg-gray-100">
+
+    <div class="container mx-auto max-w-6xl my-8 p-4 bg-white shadow-lg rounded-lg">
+        <header class="text-center py-4 border-b">
+            <h1 class="text-3xl font-bold text-gray-800">商品マスタ管理</h1>
+            <p id="db-status-indicator" class="text-sm font-semibold mt-1">データベースに接続中...</p>
+        </header>
+
+        <main class="mt-6">
+            <section id="add-product-section" class="mb-8 p-6 bg-gray-50 rounded-lg border">
+                <h2 class="text-2xl font-semibold text-gray-700 mb-4">新規商品を追加</h2>
+                
+                <div class="mb-4">
+                    <h3 class="text-lg font-medium text-gray-800 mb-2">1. ラベルを撮影</h3>
+                    <input type="file" accept="image/*" capture="environment" id="cameraInput" class="hidden">
+                    <button id="takePictureBtn" class="w-full bg-indigo-500 hover:bg-indigo-600 text-white font-bold py-3 px-4 rounded-lg flex items-center justify-center transition-colors">
+                        <svg class="w-6 h-6 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                        ラベルを撮影して自動入力
+                    </button>
+                    <div id="image-preview-container" class="mt-4 hidden text-center">
+                        <img id="imagePreview" src="" class="max-w-xs mx-auto rounded-md border bg-white p-1">
+                        <div id="ai-loading" class="mt-2 flex items-center justify-center text-gray-600 hidden">
+                            <div class="spinner mr-2"></div>
+                            <span>AIがラベルを解析中...</span>
+                        </div>
+                    </div>
+                </div>
+
+                <form id="add-product-form" novalidate>
+                    <h3 class="text-lg font-medium text-gray-800 mb-2 mt-6">2. 内容を確認・修正して追加</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <input type="text" id="productMngId" name="mngId" placeholder="管理番号" required class="p-3 border border-gray-300 rounded-lg" maxlength="4">
+                        <input type="text" id="productName" name="name" placeholder="商品名" required class="p-3 border border-gray-300 rounded-lg">
+                        <div class="autocomplete-container md:col-span-1">
+                            <input type="text" id="productOrigin" name="origin" placeholder="産地 (ひらがな, ローマ字可)" required class="p-3 border border-gray-300 rounded-lg w-full">
+                        </div>
+                        <input type="text" id="productJan" name="jan" placeholder="JANコード (13桁)" required class="p-3 border border-gray-300 rounded-lg">
+                        <input type="url" id="productLabelImageUrl" name="labelImageUrl" placeholder="ラベル画像URL (任意)" class="p-3 border border-gray-300 rounded-lg md:col-span-2">
+                        <button type="submit" id="submit-product-btn" class="w-full bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-4 rounded-lg transition-colors md:col-span-2">
+                            商品を追加する
+                        </button>
+                    </div>
+                </form>
+            </section>
+
+            <section>
+                <h2 class="text-2xl font-semibold text-gray-700 mb-4">商品一覧</h2>
+                <div id="loading-indicator" class="text-center py-10">
+                    <p>商品データを読み込んでいます...</p>
+                </div>
+                <div class="overflow-x-auto">
+                    <table id="product-table" class="min-w-full bg-white hidden">
+                        <thead class="bg-gray-200">
+                            <tr>
+                                <th class="py-3 px-4 text-left">商品ID</th>
+                                <th class="py-3 px-4 text-left">管理番号</th>
+                                <th class="py-3 px-4 text-left">商品名</th>
+                                <th class="py-3 px-4 text-left">産地</th>
+                                <th class="py-3 px-4 text-left">JAN</th>
+                                <th class="py-3 px-4 text-left">ラベル画像</th>
+                                <th class="py-3 px-4 text-left">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="product-list" class="divide-y divide-gray-200"></tbody>
+                    </table>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <div id="toast-notification" class="toast"></div>
+
+    <script type="module">
+        // --- DOM Elements ---
+        const dbStatusIndicator = document.getElementById('db-status-indicator');
+        const loadingIndicator = document.getElementById('loading-indicator');
+        const productTable = document.getElementById('product-table');
+        const productList = document.getElementById('product-list');
+        const addProductForm = document.getElementById('add-product-form');
+        const submitProductBtn = document.getElementById('submit-product-btn');
+        const toastNotification = document.getElementById('toast-notification');
+        const cameraInput = document.getElementById('cameraInput');
+        const takePictureBtn = document.getElementById('takePictureBtn');
+        const imagePreviewContainer = document.getElementById('image-preview-container');
+        const imagePreview = document.getElementById('imagePreview');
+        const aiLoading = document.getElementById('ai-loading');
+        const productMngIdInput = document.getElementById('productMngId');
+        const productOriginInput = document.getElementById('productOrigin');
+        const productJanInput = document.getElementById('productJan');
+
+        // ★★★ Enhanced Prefecture Data Structure ★★★
+        const prefectures = [
+            { kanji: "北海道", hiragana: "ほっかいどう", romaji: "hokkaido" }, { kanji: "青森県", hiragana: "あおもりけん", romaji: "aomoriken" },
+            { kanji: "岩手県", hiragana: "いわてけん", romaji: "iwateken" }, { kanji: "宮城県", hiragana: "みやぎけん", romaji: "miyagiken" },
+            { kanji: "秋田県", hiragana: "あきたけん", romaji: "akitaken" }, { kanji: "山形県", hiragana: "やまがたけん", romaji: "yamagataken" },
+            { kanji: "福島県", hiragana: "ふくしまけん", romaji: "fukushimaken" }, { kanji: "茨城県", hiragana: "いばらきけん", romaji: "ibarakiken" },
+            { kanji: "栃木県", hiragana: "とちぎけん", romaji: "tochigiken" }, { kanji: "群馬県", hiragana: "ぐんまけん", romaji: "gunmaken" },
+            { kanji: "埼玉県", hiragana: "さいたまけん", romaji: "saitamaken" }, { kanji: "千葉県", hiragana: "ちばけん", romaji: "chibaken" },
+            { kanji: "東京都", hiragana: "とうきょうと", romaji: "tokyoto" }, { kanji: "神奈川県", hiragana: "かながわけん", romaji: "kanagawaken" },
+            { kanji: "新潟県", hiragana: "にいがたけん", romaji: "niigataken" }, { kanji: "富山県", hiragana: "とやまけん", romaji: "toyamaken" },
+            { kanji: "石川県", hiragana: "いしかわけん", romaji: "ishikawaken" }, { kanji: "福井県", hiragana: "ふくいけん", romaji: "fukuiken" },
+            { kanji: "山梨県", hiragana: "やまなしけん", romaji: "yamanashiken" }, { kanji: "長野県", hiragana: "ながのけん", romaji: "naganoken" },
+            { kanji: "岐阜県", hiragana: "ぎふけん", romaji: "gifuken" }, { kanji: "静岡県", hiragana: "しずおかけん", romaji: "shizuokaken" },
+            { kanji: "愛知県", hiragana: "あいちけん", romaji: "aichiken" }, { kanji: "三重県", hiragana: "みえけん", romaji: "mieken" },
+            { kanji: "滋賀県", hiragana: "しがけん", romaji: "shigaken" }, { kanji: "京都府", hiragana: "きょうとふ", romaji: "kyotofu" },
+            { kanji: "大阪府", hiragana: "おおさかふ", romaji: "osakafu" }, { kanji: "兵庫県", hiragana: "ひょうごけん", romaji: "hyogoken" },
+            { kanji: "奈良県", hiragana: "ならけん", romaji: "naraken" }, { kanji: "和歌山県", hiragana: "わかやまけん", romaji: "wakayamaken" },
+            { kanji: "鳥取県", hiragana: "とっとりけん", romaji: "tottoriken" }, { kanji: "島根県", hiragana: "しまねけん", romaji: "shimaneken" },
+            { kanji: "岡山県", hiragana: "おかやまけん", romaji: "okayamaken" }, { kanji: "広島県", hiragana: "ひろしまけん", romaji: "hiroshimaken" },
+            { kanji: "山口県", hiragana: "やまぐちけん", romaji: "yamaguchiken" }, { kanji: "徳島県", hiragana: "とくしまけん", romaji: "tokushimaken" },
+            { kanji: "香川県", hiragana: "かがわけん", romaji: "kagawaken" }, { kanji: "愛媛県", hiragana: "えひめけん", romaji: "ehimeken" },
+            { kanji: "高知県", hiragana: "こうちけん", romaji: "kochiken" }, { kanji: "福岡県", hiragana: "ふくおかけん", romaji: "fukuokaken" },
+            { kanji: "佐賀県", hiragana: "さがけん", romaji: "sagaken" }, { kanji: "長崎県", hiragana: "ながさきけん", romaji: "nagasakiken" },
+            { kanji: "熊本県", hiragana: "くまもとけん", romaji: "kumamotoken" }, { kanji: "大分県", hiragana: "おおいたけん", romaji: "ooitaken" },
+            { kanji: "宮崎県", hiragana: "みやざきけん", romaji: "miyazakiken" }, { kanji: "鹿児島県", hiragana: "かごしまけん", romaji: "kagoshimaken" },
+            { kanji: "沖縄県", hiragana: "おきなわけん", romaji: "okinawaken" }
+        ];
+        
+        // --- Utility Functions ---
+        function showToast(message, isSuccess = true) {
+            toastNotification.textContent = message;
+            toastNotification.className = `toast show ${isSuccess ? 'success' : 'error'}`;
+            setTimeout(() => { toastNotification.classList.remove('show'); }, 3000);
+        }
+        
+        // --- AI Analysis Function ---
+        async function analyzeLabelWithAI(base64ImageData) {
+            const analyzeLabel = firebase.functions().httpsCallable('analyzeLabel');
+            try {
+                const result = await analyzeLabel({ imageData: base64ImageData });
+                return result.data;
+            } catch (error) {
+                console.error("Cloud Function call failed:", error);
+                throw new Error("AI analysis server communication failed.");
+            }
+        }
+
+        // --- Firestore Functions ---
+        function renderProductList(products) {
+            productList.innerHTML = '';
+            if (products.length === 0) {
+                loadingIndicator.textContent = 'No products registered.';
+                loadingIndicator.classList.remove('hidden');
+                productTable.classList.add('hidden');
+                return;
+            }
+
+            products.forEach(product => {
+                const tr = document.createElement('tr');
+                const imageUrl = product.labelImageUrl ? `<img src="${product.labelImageUrl}" alt="${product.name}" class="thumbnail rounded">` : 'N/A';
+                tr.innerHTML = `
+                    <td class="py-4 px-4 whitespace-nowrap">${product.id}</td>
+                    <td class="py-4 px-4 whitespace-nowrap">${product.mngId}</td>
+                    <td class="py-4 px-4 whitespace-nowrap font-medium">${product.name}</td>
+                    <td class="py-4 px-4 whitespace-nowrap">${product.origin}</td>
+                    <td class="py-4 px-4 whitespace-nowrap">${product.jan}</td>
+                    <td class="py-4 px-4">${imageUrl}</td>
+                    <td class="py-4 px-4 whitespace-nowrap">
+                        <button data-id="${product.docId}" class="delete-btn text-red-500 hover:text-red-700">Delete</button>
+                    </td>
+                `;
+                productList.appendChild(tr);
+            });
+
+            loadingIndicator.classList.add('hidden');
+            productTable.classList.remove('hidden');
+        }
+
+        async function loadProducts(db) {
+            try {
+                loadingIndicator.classList.remove('hidden');
+                productTable.classList.add('hidden');
+                const querySnapshot = await firebase.firestore().collection("products").get();
+                const products = querySnapshot.docs.map(doc => ({ docId: doc.id, ...doc.data() }));
+                renderProductList(products);
+            } catch (error) {
+                console.error("Failed to load products:", error);
+                showToast("Failed to load products.", false);
+                loadingIndicator.textContent = 'Failed to load products.';
+            }
+        }
+        
+        // ★★★ Rewritten Autocomplete Function ★★★
+        function setupAutocomplete(inp, arr) {
+            let currentFocus;
+            inp.addEventListener("input", function(e) {
+                let a, b, i, val = this.value;
+                closeAllLists();
+                if (!val) { return false; }
+                currentFocus = -1;
+                a = document.createElement("DIV");
+                a.setAttribute("id", this.id + "autocomplete-list");
+                a.setAttribute("class", "autocomplete-items");
+                this.parentNode.appendChild(a);
+
+                const lowerVal = val.toLowerCase();
+                for (i = 0; i < arr.length; i++) {
+                    // Check kanji, hiragana, and romaji
+                    if (arr[i].kanji.startsWith(val) || arr[i].hiragana.startsWith(val) || arr[i].romaji.startsWith(lowerVal)) {
+                        b = document.createElement("DIV");
+                        b.innerHTML = arr[i].kanji; // Always display Kanji
+                        b.innerHTML += "<input type='hidden' value='" + arr[i].kanji + "'>";
+                        b.addEventListener("click", function(e) {
+                            inp.value = this.getElementsByTagName("input")[0].value;
+                            closeAllLists();
+                        });
+                        a.appendChild(b);
+                    }
+                }
+            });
+            inp.addEventListener("keydown", function(e) {
+                let x = document.getElementById(this.id + "autocomplete-list");
+                if (x) x = x.getElementsByTagName("div");
+                if (e.keyCode == 40) { // Down
+                    currentFocus++;
+                    addActive(x);
+                } else if (e.keyCode == 38) { // Up
+                    currentFocus--;
+                    addActive(x);
+                } else if (e.keyCode == 13) { // Enter
+                    e.preventDefault();
+                    if (currentFocus > -1) {
+                        if (x) x[currentFocus].click();
+                    }
+                }
+            });
+            function addActive(x) {
+                if (!x) return false;
+                removeActive(x);
+                if (currentFocus >= x.length) currentFocus = 0;
+                if (currentFocus < 0) currentFocus = (x.length - 1);
+                x[currentFocus].classList.add("autocomplete-active");
+            }
+            function removeActive(x) {
+                for (let i = 0; i < x.length; i++) {
+                    x[i].classList.remove("autocomplete-active");
+                }
+            }
+            function closeAllLists(elmnt) {
+                const x = document.getElementsByClassName("autocomplete-items");
+                for (let i = 0; i < x.length; i++) {
+                    if (elmnt != x[i] && elmnt != inp) {
+                        x[i].parentNode.removeChild(x[i]);
+                    }
+                }
+            }
+            document.addEventListener("click", (e) => closeAllLists(e.target));
+        }
+
+        // --- Event Listener Initialization ---
+        function initializeEventListeners(db) {
+            takePictureBtn.addEventListener('click', () => cameraInput.click());
+
+            cameraInput.addEventListener('change', async (event) => {
+                const file = event.target.files[0];
+                if (!file) return;
+
+                const reader = new FileReader();
+                reader.onload = async (e) => {
+                    const imageUrl = e.target.result;
+                    imagePreview.src = imageUrl;
+                    imagePreviewContainer.classList.remove('hidden');
+                    aiLoading.classList.remove('hidden');
+                    
+                    try {
+                        const base64ImageData = imageUrl.split(',')[1];
+                        const extractedData = await analyzeLabelWithAI(base64ImageData);
+                        
+                        if (extractedData) {
+                            productMngIdInput.value = extractedData.mngId || '';
+                            document.getElementById('productName').value = extractedData.productName || '';
+                            productOriginInput.value = extractedData.origin || '';
+                            productJanInput.value = extractedData.janCode || '';
+                            showToast("ラベル情報を自動入力しました。");
+
+                            // Trigger formatting after AI input
+                            productMngIdInput.dispatchEvent(new Event('blur'));
+                            productOriginInput.dispatchEvent(new Event('blur'));
+                        } else {
+                           showToast("AIが情報を抽出できませんでした。", false);
+                        }
+                    } catch (error) {
+                        console.error("AI analysis error:", error);
+                        showToast(`AI analysis error: ${error.message}`, false);
+                    } finally {
+                        aiLoading.classList.add('hidden');
+                    }
+                };
+                reader.readAsDataURL(file);
+            });
+
+            addProductForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+
+                // ★★★ Final Validation Logic (Management Number added) ★★★
+                const isValidPrefecture = prefectures.some(p => p.kanji === productOriginInput.value);
+
+                if (!/^\d{4}$/.test(productMngIdInput.value)) {
+                    showToast("管理番号は4桁の数字で入力してください。", false);
+                    productMngIdInput.focus();
+                    return;
+                }
+                if (productJanInput.value.length !== 13 || !/^\d+$/.test(productJanInput.value)) {
+                    showToast("JANコードは13桁の数字で入力してください。", false);
+                    productJanInput.focus();
+                    return;
+                }
+                if (!isValidPrefecture) {
+                    showToast("産地は候補から正しく選択してください。", false);
+                    productOriginInput.focus();
+                    return;
+                }
+
+                submitProductBtn.disabled = true;
+                submitProductBtn.textContent = 'Adding...';
+
+                try {
+                    const productsCollection = firebase.firestore().collection("products");
+                    const productsSnapshot = await productsCollection.get();
+                    const newIdNumber = productsSnapshot.size + 1;
+                    const newProductId = 'p' + String(newIdNumber).padStart(4, '0');
+
+                    const newProduct = {
+                        id: newProductId,
+                        mngId: productMngIdInput.value,
+                        name: document.getElementById('productName').value,
+                        origin: productOriginInput.value,
+                        jan: productJanInput.value,
+                        labelImageUrl: document.getElementById('productLabelImageUrl').value,
+                    };
+
+                    await productsCollection.add(newProduct);
+                    showToast("商品が正常に追加されました。");
+                    addProductForm.reset();
+                    imagePreviewContainer.classList.add('hidden');
+                    await loadProducts(db);
+                } catch (error) {
+                    console.error("Failed to add product:", error);
+                    showToast("商品の追加に失敗しました。", false);
+                } finally {
+                    submitProductBtn.disabled = false;
+                    submitProductBtn.textContent = '商品を追加する';
+                }
+            });
+
+            productList.addEventListener('click', async (e) => {
+                if (e.target.classList.contains('delete-btn')) {
+                    const docId = e.target.dataset.id;
+                    if (confirm("この商品を本当に削除しますか？")) {
+                        try {
+                            await firebase.firestore().collection("products").doc(docId).delete();
+                            showToast("商品を削除しました。");
+                            await loadProducts(db);
+                        } catch (error) {
+                            console.error("Failed to delete product:", error);
+                            showToast("商品の削除に失敗しました。", false);
+                        }
+                    }
+                }
+            });
+
+            // Management Number: Format on blur (4-digit padding)
+            productMngIdInput.addEventListener('blur', (e) => {
+                const value = e.target.value.trim();
+                if (value && /^\d{1,4}$/.test(value)) {
+                    e.target.value = value.padStart(4, '0');
+                }
+            });
+
+            // Origin: Format on blur (remove trailing "産")
+            productOriginInput.addEventListener('blur', (e) => {
+                let value = e.target.value.trim();
+                if (value.endsWith('産')) {
+                    e.target.value = value.slice(0, -1);
+                }
+            });
+            
+            // JAN Code: Real-time validation feedback
+            productJanInput.addEventListener('input', (e) => {
+                const value = e.target.value;
+                if (value.length > 0 && (value.length !== 13 || !/^\d+$/.test(value))) {
+                    e.target.classList.add('border-red-500');
+                } else {
+                    e.target.classList.remove('border-red-500');
+                }
+            });
+        }
+        
+        // --- Main Execution ---
+        document.addEventListener('DOMContentLoaded', () => {
+             try {
+                if (firebase.app()) {
+                    dbStatusIndicator.textContent = 'データベース接続: 正常';
+                    dbStatusIndicator.classList.add('text-green-600');
+                    const db = firebase.firestore();
+                    firebase.auth().signInAnonymously().then(() => {
+                        loadProducts(db);
+                        initializeEventListeners(db);
+                        setupAutocomplete(productOriginInput, prefectures);
+                    }).catch(error => {
+                        console.error("Anonymous auth failed:", error);
+                        throw new Error("Authentication failed");
+                    });
+
+                } else {
+                     throw new Error("Firebase is not initialized");
+                }
+            } catch (e) {
+                console.error("Firebase init or data load failed:", e);
+                dbStatusIndicator.textContent = 'データベース接続: エラー';
+                dbStatusIndicator.classList.add('text-red-600');
+                loadingIndicator.textContent = `データベースに接続できませんでした。`;
+            }
+        });
+    </script>
+</body>
+</html>
+

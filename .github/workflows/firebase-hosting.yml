@@ -5,25 +5,29 @@ on:
     branches:
       - main
       - develop
+      - staging # ←【修正点1】stagingブランチをトリガーに追加
 
 jobs:
   # 本番環境へのデプロイ用ジョブ
   deploy_production:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    environment: production # 本番用の金庫(Environment)を指定
+    environment: production
     steps:
       - uses: actions/checkout@v3
-
       - name: Inject Production Firebase Config
         run: |
-          # 合鍵を一時ファイルに書き出す
-          echo "const firebaseConfig = ${{ secrets.FIREBASE_CONFIG_PRODUCTION }};" > config.js
-
-          # 全てのHTMLファイルで、目印の行を一時ファイルの中身に置き換える
+          CONFIG_JSON='${{ secrets.FIREBASE_CONFIG_PRODUCTION }}'
           for file in *.html; do
-            if grep -q "const firebaseConfig = {};" "$file"; then
-              sed -i -e '/const firebaseConfig = {};/r config.js' -e '/const firebaseConfig = {};/d' "$file"
+            if grep -q "__FIREBASE_CONFIG__" "$file"; then
+              awk -v config="${CONFIG_JSON}" '{gsub(/__FIREBASE_CONFIG__/, config)}1' "$file" > "$file.tmp" && mv "$file.tmp" "$file"
+            fi
+          done
+
+          GEMINI_KEY='${{ secrets.GEMINI_API_KEY }}'
+          for file in *.html; do
+            if grep -q "__GEMINI_API_KEY__" "$file"; then
+              awk -v key="$GEMINI_KEY" '{gsub(/__GEMINI_API_KEY__/, key)}1' "$file" > "$file.tmp" && mv "$file.tmp" "$file"
             fi
           done
 
@@ -35,30 +39,67 @@ jobs:
           projectId: aac-label-check-app
           channelId: live
 
-  # テスト環境へのデプロイ用ジョブ
+  # 開発環境へのデプロイ用ジョブ
   deploy_development:
     if: github.ref == 'refs/heads/develop'
     runs-on: ubuntu-latest
-    environment: development # テスト用の金庫(Environment)を指定
+    environment: development
     steps:
       - uses: actions/checkout@v3
-
       - name: Inject Development Firebase Config
         run: |
-          # 合鍵を一時ファイルに書き出す
-          echo "const firebaseConfig = ${{ secrets.FIREBASE_CONFIG_DEVELOPMENT }};" > config.js
-
-          # 全てのHTMLファイルで、目印の行を一時ファイルの中身に置き換える
+          CONFIG_JSON='${{ secrets.FIREBASE_CONFIG_DEVELOPMENT }}'
           for file in *.html; do
-            if grep -q "const firebaseConfig = {};" "$file"; then
-              sed -i -e '/const firebaseConfig = {};/r config.js' -e '/const firebaseConfig = {};/d' "$file"
+            if grep -q "__FIREBASE_CONFIG__" "$file"; then
+              awk -v config="${CONFIG_JSON}" '{gsub(/__FIREBASE_CONFIG__/, config)}1' "$file" > "$file.tmp" && mv "$file.tmp" "$file"
             fi
           done
 
+          GEMINI_KEY='${{ secrets.GEMINI_API_KEY }}'
+          for file in *.html; do
+            if grep -q "__GEMINI_API_KEY__" "$file"; then
+              awk -v key="$GEMINI_KEY" '{gsub(/__GEMINI_API_KEY__/, key)}1' "$file" > "$file.tmp" && mv "$file.tmp" "$file"
+            fi
+          done
+          
       - name: Deploy to Firebase Hosting (Development)
         uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: '${{ secrets.GITHUB_TOKEN }}'
           firebaseServiceAccount: '${{ secrets.FIREBASE_SERVICE_ACCOUNT_AAC_LABEL_CHECK_APP_DEV }}'
           projectId: aac-label-check-app-dev
+          channelId: live
+
+  # ←【修正点2】ここからstaging環境用のジョブを丸ごと追加
+  # デモ・テスト(staging)環境へのデプロイ用ジョブ
+  deploy_staging:
+    if: github.ref == 'refs/heads/staging'
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@v3
+      - name: Inject Staging Firebase Config
+        run: |
+          CONFIG_JSON='${{ secrets.FIREBASE_CONFIG_STAGING }}'
+          for file in *.html; do
+            if grep -q "__FIREBASE_CONFIG__" "$file"; then
+              awk -v config="${CONFIG_JSON}" '{gsub(/__FIREBASE_CONFIG__/, config)}1' "$file" > "$file.tmp" && mv "$file.tmp" "$file"
+            fi
+          done
+
+          # staging環境でもGemini APIキーを使う場合は、GitHubのEnvironment Secretsに
+          # GEMINI_API_KEY を追加してください。不要な場合はこのブロックを削除します。
+          GEMINI_KEY='${{ secrets.GEMINI_API_KEY }}'
+          for file in *.html; do
+            if grep -q "__GEMINI_API_KEY__" "$file"; then
+              awk -v key="$GEMINI_KEY" '{gsub(/__GEMINI_API_KEY__/, key)}1' "$file" > "$file.tmp" && mv "$file.tmp" "$file"
+            fi
+          done
+          
+      - name: Deploy to Firebase Hosting (Staging)
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: '${{ secrets.GITHUB_TOKEN }}'
+          firebaseServiceAccount: '${{ secrets.FIREBASE_SERVICE_ACCOUNT_AAC_LABEL_CHECK_APP_DEMO }}'
+          projectId: aac-label-check-app-demo
           channelId: live
