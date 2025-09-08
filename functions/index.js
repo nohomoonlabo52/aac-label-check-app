@@ -19,7 +19,7 @@ const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
 // 'analyzeLabel'という名前でCloud Functionを定義
 // ★★★ onCallからonRequestに変更し、CORSハンドラを組み込む ★★★
-exports.analyzeLabel = functions.region('asia-northeast1').https.onRequest((req, res) => {
+exports.analyzeLabel = functions.https.onRequest((req, res) => {
   // CORSミドルウェアを実行して、リクエストが許可されているかチェック
   cors(req, res, async () => {
     // onCallと異なり、データはreq.body.dataに入ってくる
