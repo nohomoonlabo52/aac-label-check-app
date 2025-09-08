@@ -173,8 +173,7 @@
                 const analyzeLabel = window.httpsCallable(window.functions, 'analyzeLabel');
                 try {
                     const result = await analyzeLabel({ imageData: base64ImageData });
-                    // onRequestに変更したため、result.dataの中にさらにdataプロパティがある
-                    return result.data.data;
+                    return result.data;
                 } catch (error) {
                     console.error("Cloud Function call failed:", error);
                     throw new Error("AI analysis server communication failed.");
