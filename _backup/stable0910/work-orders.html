@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ラベルチェックアプリ 作業指示管理 v1.0.0</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .toast {
+            position: fixed; bottom: 20px; right: 20px; padding: 1rem 1.5rem;
+            border-radius: 0.5rem; color: white; opacity: 0;
+            transition: opacity 0.3s ease-in-out; z-index: 100;
+        }
+        .toast.show { opacity: 1; }
+        .toast.success { background-color: #28a745; }
+        .toast.error { background-color: #dc3545; }
+    </style>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+</head>
+<body class="bg-gray-100">
+
+    <div class="container mx-auto max-w-6xl my-8 p-4 bg-white shadow-lg rounded-lg">
+        <header class="text-center py-4 border-b">
+            <h1 class="text-3xl font-bold text-gray-800">作業指示 管理</h1>
+            <p id="db-status-indicator" class="text-sm font-semibold mt-1">データベースに接続中...</p>
+        </header>
+
+        <main class="mt-6">
+            <section class="mb-8 p-6 bg-gray-50 rounded-lg border">
+                <h2 class="text-2xl font-semibold text-gray-700 mb-4">新規作業指示を追加</h2>
+                <form id="add-order-form" class="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+                    <div>
+                        <label for="product-select" class="block text-sm font-medium text-gray-700">製品（ラベル）を選択</label>
+                        <select id="product-select" required class="mt-1 block w-full p-3 border border-gray-300 rounded-lg"></select>
+                    </div>
+                    <div>
+                        <label for="material-select" class="block text-sm font-medium text-gray-700">原料を選択</label>
+                        <select id="material-select" required class="mt-1 block w-full p-3 border border-gray-300 rounded-lg"></select>
+                    </div>
+                    <div>
+                        <label for="status-select" class="block text-sm font-medium text-gray-700">状態</label>
+                        <select id="status-select" required class="mt-1 block w-full p-3 border border-gray-300 rounded-lg">
+                            <option>未着手</option>
+                            <option>作業中</option>
+                            <option>完了</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="case-quantity" class="block text-sm font-medium text-gray-700">作業ケース数</label>
+                        <input type="number" id="case-quantity" placeholder="例: 50" required class="mt-1 block w-full p-3 border border-gray-300 rounded-lg">
+                    </div>
+                    <div>
+                        <label for="packs-per-case" class="block text-sm font-medium text-gray-700">ケース入数</label>
+                        <input type="number" id="packs-per-case" placeholder="例: 12" required class="mt-1 block w-full p-3 border border-gray-300 rounded-lg">
+                    </div>
+                    <div>
+                        <label for="total-packs" class="block text-sm font-medium text-gray-700">総パック数 (自動計算)</label>
+                        <input type="number" id="total-packs" readonly class="mt-1 block w-full p-3 border border-gray-300 rounded-lg bg-gray-200">
+                    </div>
+                    <button type="submit" id="submit-order-btn" class="md:col-span-3 w-full bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-4 rounded-lg transition-colors">
+                        作業指示を追加する
+                    </button>
+                </form>
+            </section>
+
+            <section>
+                <h2 class="text-2xl font-semibold text-gray-700 mb-4">作業指示一覧</h2>
+                <div id="loading-indicator" class="text-center py-10">
+                    <p>作業指示データを読み込んでいます...</p>
+                </div>
+                <div class="overflow-x-auto">
+                    <table id="order-table" class="min-w-full bg-white hidden">
+                        <thead class="bg-gray-200">
+                            <tr>
+                                <th class="py-3 px-4 text-left">指示ID</th>
+                                <th class="py-3 px-4 text-left">製品（ラベル）</th>
+                                <th class="py-3 px-4 text-left">原料</th>
+                                <th class="py-3 px-4 text-left">数量</th>
+                                <th class="py-3 px-4 text-left">状態</th>
+                                <th class="py-3 px-4 text-left">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="order-list" class="divide-y divide-gray-200"></tbody>
+                    </table>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <div id="toast-notification" class="toast"></div>
+
+    <script type="module">
+        //【修正点1】DOMContentLoadedの代わりに、新しいカスタムイベント'firebase-ready'を待つ
+        document.addEventListener('firebase-ready', () => {
+            const { collection, getDocs, addDoc, deleteDoc, doc } = window.firebaseFirestore;
+
+            const dbStatusIndicator = document.getElementById('db-status-indicator');
+            const loadingIndicator = document.getElementById('loading-indicator');
+            const orderTable = document.getElementById('order-table');
+            const orderList = document.getElementById('order-list');
+            const addOrderForm = document.getElementById('add-order-form');
+            const submitOrderBtn = document.getElementById('submit-order-btn');
+            const toastNotification = document.getElementById('toast-notification');
+            const productSelect = document.getElementById('product-select');
+            const materialSelect = document.getElementById('material-select');
+            const caseQuantityInput = document.getElementById('case-quantity');
+            const packsPerCaseInput = document.getElementById('packs-per-case');
+            const totalPacksInput = document.getElementById('total-packs');
+            
+            //【修正点2】db変数は共通初期化スクリプトで作成されたwindow.dbを使う
+            const db = window.db;
+            let products = [];
+            let materials = [];
+
+            function showToast(message, isSuccess = true) {
+                toastNotification.textContent = message;
+                toastNotification.className = `toast show ${isSuccess ? 'success' : 'error'}`;
+                setTimeout(() => { toastNotification.classList.remove('show'); }, 3000);
+            }
+
+            function calculateTotalPacks() {
+                const cases = parseInt(caseQuantityInput.value) || 0;
+                const packs = parseInt(packsPerCaseInput.value) || 0;
+                totalPacksInput.value = cases * packs;
+            }
+
+            async function loadInitialData() {
+                try {
+                    const [productsSnapshot, materialsSnapshot] = await Promise.all([
+                        getDocs(collection(db, "products")),
+                        getDocs(collection(db, "materials"))
+                    ]);
+                    
+                    products = productsSnapshot.docs.map(doc => ({ docId: doc.id, ...doc.data() }));
+                    materials = materialsSnapshot.docs.map(doc => ({ docId: doc.id, ...doc.data() }));
+
+                    productSelect.innerHTML = '<option value="">選択してください</option>' + products.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+                    materialSelect.innerHTML = '<option value="">選択してください</option>' + materials.map(m => `<option value="${m.id}">${m.name} (${m.origin})</option>`).join('');
+
+                    await loadWorkOrders();
+
+                } catch (error) {
+                    console.error("初期データの読み込みに失敗:", error);
+                    showToast("マスタデータの読み込みに失敗しました。", false);
+                    loadingIndicator.textContent = 'マスタデータの読み込みに失敗しました。';
+                }
+            }
+
+            async function loadWorkOrders() {
+                loadingIndicator.classList.remove('hidden');
+                orderTable.classList.add('hidden');
+                
+                try {
+                    const querySnapshot = await getDocs(collection(db, "work_orders"));
+                    const workOrders = querySnapshot.docs.map(doc => ({ docId: doc.id, ...doc.data() }));
+
+                    orderList.innerHTML = '';
+                    if (workOrders.length === 0) {
+                        loadingIndicator.textContent = '作業指示が登録されていません。';
+                        loadingIndicator.classList.remove('hidden'); // Ensure indicator is visible
+                        orderTable.classList.add('hidden');
+                        return;
+                    }
+
+                    workOrders.forEach(order => {
+                        const product = products.find(p => p.id === order.productId);
+                        const material = materials.find(m => m.id === order.materialId);
+                        const tr = document.createElement('tr');
+                        
+                        tr.innerHTML = `
+                            <td class="py-4 px-4 whitespace-nowrap">${order.orderId}</td>
+                            <td class="py-4 px-4 whitespace-nowrap font-medium">${product ? product.name : '不明な製品'}</td>
+                            <td class="py-4 px-4 whitespace-nowrap">${material ? `${material.name} (${material.origin})` : '不明な原料'}</td>
+                            <td class="py-4 px-4 whitespace-nowrap">${order.caseQuantity}ケース (${order.totalPacks}パック)</td>
+                            <td class="py-4 px-4 whitespace-nowrap">${order.status}</td>
+                            <td class="py-4 px-4 whitespace-nowrap">
+                                <button data-id="${order.docId}" class="delete-btn text-red-500 hover:text-red-700">削除</button>
+                            </td>
+                        `;
+                        orderList.appendChild(tr);
+                    });
+
+                    loadingIndicator.classList.add('hidden');
+                    orderTable.classList.remove('hidden');
+                } catch(error) {
+                    console.error("作業指示の読み込みに失敗:", error);
+                    showToast("作業指示の読み込みに失敗しました。", false);
+                    loadingIndicator.textContent = '作業指示の読み込みに失敗しました。';
+                }
+            }
+            
+            function main() {
+                dbStatusIndicator.textContent = 'データベース接続: 正常';
+                dbStatusIndicator.classList.add('text-green-600');
+                
+                loadInitialData();
+
+                addOrderForm.addEventListener('submit', async (e) => {
+                    e.preventDefault();
+                    submitOrderBtn.disabled = true;
+                    submitOrderBtn.textContent = '追加中...';
+
+                    try {
+                        const ordersSnapshot = await getDocs(collection(db, "work_orders"));
+                        const newIdNumber = ordersSnapshot.size + 1;
+                        const newOrderId = 'wo' + String(newIdNumber).padStart(4, '0');
+
+                        const newOrder = {
+                            orderId: newOrderId,
+                            productId: document.getElementById('product-select').value,
+                            materialId: document.getElementById('material-select').value,
+                            status: document.getElementById('status-select').value,
+                            caseQuantity: parseInt(caseQuantityInput.value),
+                            packsPerCase: parseInt(packsPerCaseInput.value),
+                            totalPacks: parseInt(totalPacksInput.value),
+                        };
+
+                        await addDoc(collection(db, "work_orders"), newOrder);
+                        showToast("作業指示が正常に追加されました。");
+                        addOrderForm.reset();
+                        calculateTotalPacks();
+                        await loadWorkOrders();
+                    } catch (error) {
+                        console.error("作業指示の追加に失敗:", error);
+                        showToast("作業指示の追加に失敗しました。", false);
+                    } finally {
+                        submitOrderBtn.disabled = false;
+                        submitOrderBtn.textContent = '作業指示を追加する';
+                    }
+                });
+
+                orderList.addEventListener('click', async (e) => {
+                    if (e.target.classList.contains('delete-btn')) {
+                        const docId = e.target.dataset.id;
+                        if (confirm("この作業指示を本当に削除しますか？")) {
+                            try {
+                                await deleteDoc(doc(db, "work_orders", docId));
+                                showToast("作業指示を削除しました。");
+                                await loadWorkOrders();
+                            } catch (error) {
+                                console.error("作業指示の削除に失敗:", error);
+                                showToast("作業指示の削除に失敗しました。", false);
+                            }
+                        }
+                    }
+                });
+
+                caseQuantityInput.addEventListener('input', calculateTotalPacks);
+                packsPerCaseInput.addEventListener('input', calculateTotalPacks);
+            }
+
+            // main関数を実行
+            main();
+        });
+        
+        // Firebase初期化失敗時の処理
+        document.addEventListener('firebase-failed', (e) => {
+            const dbStatusIndicator = document.getElementById('db-status-indicator');
+            const loadingIndicator = document.getElementById('loading-indicator');
+            console.error("Firebaseの初期化またはデータ読み込みに失敗:", e.detail);
+            dbStatusIndicator.textContent = 'データベース接続: エラー';
+            dbStatusIndicator.classList.add('text-red-600');
+            loadingIndicator.textContent = `データベースに接続できませんでした: ${e.detail.message}`;
+        });
+    </script>
+    
+    <!-- ▼▼▼ 共通のFirebase初期化スクリプト ▼▼▼ -->
+    <script type="module">
+      // Firebase SDKs
+      import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+      import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+      import { getFirestore, collection, getDocs, addDoc, deleteDoc, doc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+      import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-functions.js";
+
+      // --- Firebase Initialization ---
+      try {
+        const firebaseConfig = __FIREBASE_CONFIG__;
+        const app = initializeApp(firebaseConfig);
+        
+        // 他のスクリプトから使えるように、グローバル変数としてエクスポート
+        window.db = getFirestore(app);
+        window.auth = getAuth(app);
+        window.functions = getFunctions(app, 'asia-northeast1');
+        window.httpsCallable = httpsCallable;
+        // Firestoreの個別関数もエクスポート
+        window.firebaseFirestore = { collection, getDocs, addDoc, deleteDoc, doc };
+
+        // 匿名認証
+        await signInAnonymously(window.auth);
+
+        // ページ内のメイン処理を実行するためのカスタムイベントを発行
+        document.dispatchEvent(new Event('firebase-ready'));
+
+      } catch (error) {
+        console.error("Firebase Initialization Failed:", error);
+        // ページ内のメイン処理に失敗を伝える
+        document.dispatchEvent(new CustomEvent('firebase-failed', { detail: error }));
+      }
+    </script>
+</body>
+</html>
+

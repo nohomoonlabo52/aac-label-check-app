@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ラベルチェックアプリ 原料マスタ管理 v1.0.0</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!--【修正点1】古いFirebase SDKとinit.jsを削除-->
+
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .toast {
+            position: fixed; bottom: 20px; right: 20px; padding: 1rem 1.5rem;
+            border-radius: 0.5rem; color: white; opacity: 0;
+            transition: opacity 0.3s ease-in-out; z-index: 100;
+        }
+        .toast.show { opacity: 1; }
+        .toast.success { background-color: #28a745; }
+        .toast.error { background-color: #dc3545; }
+        .autocomplete-container { position: relative; }
+        .autocomplete-items {
+            position: absolute; border: 1px solid #d4d4d4; border-bottom: none;
+            border-top: none; z-index: 99; top: 100%; left: 0; right: 0;
+            max-height: 200px; overflow-y: auto;
+        }
+        .autocomplete-items div {
+            padding: 10px; cursor: pointer; background-color: #fff;
+            border-bottom: 1px solid #d4d4d4;
+        }
+        .autocomplete-items div:hover { background-color: #e9e9e9; }
+        .autocomplete-active { background-color: DodgerBlue !important; color: #ffffff; }
+    </style>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+</head>
+<body class="bg-gray-100">
+
+    <div class="container mx-auto max-w-6xl my-8 p-4 bg-white shadow-lg rounded-lg">
+        <header class="text-center py-4 border-b">
+            <h1 class="text-3xl font-bold text-gray-800">原料マスタ管理</h1>
+            <p id="db-status-indicator" class="text-sm font-semibold mt-1">データベースに接続中...</p>
+        </header>
+
+        <main class="mt-6">
+            <section id="add-material-section" class="mb-8 p-6 bg-gray-50 rounded-lg border">
+                <h2 class="text-2xl font-semibold text-gray-700 mb-4">新規原料を追加</h2>
+                <form id="add-material-form" novalidate class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <input type="text" id="materialName" name="name" placeholder="原料名" required class="p-3 border border-gray-300 rounded-lg">
+                    <div class="autocomplete-container">
+                        <input type="text" id="materialOrigin" name="origin" placeholder="産地 (ひらがな, ローマ字可)" required class="p-3 border border-gray-300 rounded-lg w-full">
+                    </div>
+                    <input type="text" id="materialSupplier" name="supplier" placeholder="仕入先名 (任意)" class="p-3 border border-gray-300 rounded-lg md:col-span-2">
+                    <button type="submit" id="submit-material-btn" class="md:col-span-2 w-full bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-4 rounded-lg transition-colors">
+                        原料を追加する
+                    </button>
+                </form>
+            </section>
+
+            <section>
+                <h2 class="text-2xl font-semibold text-gray-700 mb-4">原料一覧</h2>
+                <div id="loading-indicator" class="text-center py-10">
+                    <p>原料データを読み込んでいます...</p>
+                </div>
+                <div class="overflow-x-auto">
+                    <table id="material-table" class="min-w-full bg-white hidden">
+                        <thead class="bg-gray-200">
+                            <tr>
+                                <th class="py-3 px-4 text-left">原料ID</th>
+                                <th class="py-3 px-4 text-left">原料名</th>
+                                <th class="py-3 px-4 text-left">産地</th>
+                                <th class="py-3 px-4 text-left">仕入先</th>
+                                <th class="py-3 px-4 text-left">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="material-list" class="divide-y divide-gray-200"></tbody>
+                    </table>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <div id="toast-notification" class="toast"></div>
+
+    <script type="module">
+        //【修正点2】DOMContentLoadedの代わりに、新しいカスタムイベント'firebase-ready'を待つ
+        document.addEventListener('firebase-ready', () => {
+            const { collection, getDocs, addDoc, deleteDoc, doc } = window.firebaseFirestore;
+
+            // --- DOM Elements ---
+            const dbStatusIndicator = document.getElementById('db-status-indicator');
+            const loadingIndicator = document.getElementById('loading-indicator');
+            const materialTable = document.getElementById('material-table');
+            const materialList = document.getElementById('material-list');
+            const addMaterialForm = document.getElementById('add-material-form');
+            const submitMaterialBtn = document.getElementById('submit-material-btn');
+            const toastNotification = document.getElementById('toast-notification');
+            const materialOriginInput = document.getElementById('materialOrigin');
+
+            const db = window.db; //【修正点3】グローバル変数からdbを取得
+
+            const prefectures = [
+                { kanji: "北海道", hiragana: "ほっかいどう", romaji: "hokkaido" }, { kanji: "青森県", hiragana: "あおもりけん", romaji: "aomoriken" },
+                { kanji: "岩手県", hiragana: "いわてけん", romaji: "iwateken" }, { kanji: "宮城県", hiragana: "みやぎけん", romaji: "miyagiken" },
+                { kanji: "秋田県", hiragana: "あきたけん", romaji: "akitaken" }, { kanji: "山形県", hiragana: "やまがたけん", romaji: "yamagataken" },
+                { kanji: "福島県", hiragana: "ふくしまけん", romaji: "fukushimaken" }, { kanji: "茨城県", hiragana: "いばらきけん", romaji: "ibarakiken" },
+                { kanji: "栃木県", hiragana: "とちぎけん", romaji: "tochigiken" }, { kanji: "群馬県", hiragana: "ぐんまけん", romaji: "gunmaken" },
+                { kanji: "埼玉県", hiragana: "さいたまけん", romaji: "saitamaken" }, { kanji: "千葉県", hiragana: "ちばけん", romaji: "chibaken" },
+                { kanji: "東京都", hiragana: "とうきょうと", romaji: "tokyoto" }, { kanji: "神奈川県", hiragana: "かながわけん", romaji: "kanagawaken" },
+                { kanji: "新潟県", hiragana: "にいがたけん", romaji: "niigataken" }, { kanji: "富山県", hiragana: "とやまけん", romaji: "toyamaken" },
+                { kanji: "石川県", hiragana: "いしかわけん", romaji: "ishikawaken" }, { kanji: "福井県", hiragana: "ふくいけん", romaji: "fukuiken" },
+                { kanji: "山梨県", hiragana: "やまなしけん", romaji: "yamanashiken" }, { kanji: "長野県", hiragana: "ながのけん", romaji: "naganoken" },
+                { kanji: "岐阜県", hiragana: "ぎふけん", romaji: "gifuken" }, { kanji: "静岡県", hiragana: "しずおかけん", romaji: "shizuokaken" },
+                { kanji: "愛知県", hiragana: "あいちけん", romaji: "aichiken" }, { kanji: "三重県", hiragana: "みえけん", romaji: "mieken" },
+                { kanji: "滋賀県", hiragana: "しがけん", romaji: "shigaken" }, { kanji: "京都府", hiragana: "きょうとふ", romaji: "kyotofu" },
+                { kanji: "大阪府", hiragana: "おおさかふ", romaji: "osakafu" }, { kanji: "兵庫県", hiragana: "ひょうごけん", romaji: "hyogoken" },
+                { kanji: "奈良県", hiragana: "ならけん", romaji: "naraken" }, { kanji: "和歌山県", hiragana: "わかやまけん", romaji: "wakayamaken" },
+                { kanji: "鳥取県", hiragana: "とっとりけん", romaji: "tottoriken" }, { kanji: "島根県", hiragana: "しまねけん", romaji: "shimaneken" },
+                { kanji: "岡山県", hiragana: "おかやまけん", romaji: "okayamaken" }, { kanji: "広島県", hiragana: "ひろしまけん", romaji: "hiroshimaken" },
+                { kanji: "山口県", hiragana: "やまぐちけん", romaji: "yamaguchiken" }, { kanji: "徳島県", hiragana: "とくしまけん", romaji: "tokushimaken" },
+                { kanji: "香川県", hiragana: "かがわけん", romaji: "kagawaken" }, { kanji: "愛媛県", hiragana: "えひめけん", romaji: "ehimeken" },
+                { kanji: "高知県", hiragana: "こうちけん", romaji: "kochiken" }, { kanji: "福岡県", hiragana: "ふくおかけん", romaji: "fukuokaken" },
+                { kanji: "佐賀県", hiragana: "さがけん", romaji: "sagaken" }, { kanji: "長崎県", hiragana: "ながさきけん", romaji: "nagasakiken" },
+                { kanji: "熊本県", hiragana: "くまもとけん", romaji: "kumamotoken" }, { kanji: "大分県", hiragana: "おおいたけん", romaji: "ooitaken" },
+                { kanji: "宮崎県", hiragana: "みやざきけん", romaji: "miyazakiken" }, { kanji: "鹿児島県", hiragana: "かごしまけん", romaji: "kagoshimaken" },
+                { kanji: "沖縄県", hiragana: "おきなわけん", romaji: "okinawaken" }
+            ];
+
+            function showToast(message, isSuccess = true) {
+                toastNotification.textContent = message;
+                toastNotification.className = `toast show ${isSuccess ? 'success' : 'error'}`;
+                setTimeout(() => { toastNotification.classList.remove('show'); }, 3000);
+            }
+
+            function renderMaterialList(materials) {
+                materialList.innerHTML = '';
+                if (materials.length === 0) {
+                    loadingIndicator.textContent = '原料が登録されていません。';
+                    loadingIndicator.classList.remove('hidden');
+                    materialTable.classList.add('hidden');
+                    return;
+                }
+                materials.forEach(material => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td class="py-4 px-4 whitespace-nowrap">${material.id}</td>
+                        <td class="py-4 px-4 whitespace-nowrap font-medium">${material.name}</td>
+                        <td class="py-4 px-4 whitespace-nowrap">${material.origin}</td>
+                        <td class="py-4 px-4 whitespace-nowrap">${material.supplier || ''}</td>
+                        <td class="py-4 px-4 whitespace-nowrap">
+                            <button data-id="${material.docId}" class="delete-btn text-red-500 hover:text-red-700">削除</button>
+                        </td>
+                    `;
+                    materialList.appendChild(tr);
+                });
+                loadingIndicator.classList.add('hidden');
+                materialTable.classList.remove('hidden');
+            }
+
+            async function loadMaterials() {
+                try {
+                    loadingIndicator.classList.remove('hidden');
+                    materialTable.classList.add('hidden');
+                    const querySnapshot = await getDocs(collection(db, "materials"));
+                    const materials = querySnapshot.docs.map(doc => ({ docId: doc.id, ...doc.data() }));
+                    renderMaterialList(materials);
+                } catch (error) {
+                    console.error("原料データの読み込みに失敗:", error);
+                    showToast("原料データの読み込みに失敗しました。", false);
+                    loadingIndicator.textContent = '原料データの読み込みに失敗しました。';
+                }
+            }
+            
+            function setupAutocomplete(inp, arr) {
+                let currentFocus;
+                inp.addEventListener("input", function(e) {
+                    let a, b, i, val = this.value;
+                    closeAllLists();
+                    if (!val) { return false; }
+                    currentFocus = -1;
+                    a = document.createElement("DIV");
+                    a.setAttribute("id", this.id + "autocomplete-list");
+                    a.setAttribute("class", "autocomplete-items");
+                    this.parentNode.appendChild(a);
+                    const lowerVal = val.toLowerCase();
+                    for (i = 0; i < arr.length; i++) {
+                        if (arr[i].kanji.startsWith(val) || arr[i].hiragana.startsWith(val) || arr[i].romaji.startsWith(lowerVal)) {
+                            b = document.createElement("DIV");
+                            b.innerHTML = arr[i].kanji;
+                            b.innerHTML += "<input type='hidden' value='" + arr[i].kanji + "'>";
+                            b.addEventListener("click", function(e) {
+                                inp.value = this.getElementsByTagName("input")[0].value;
+                                closeAllLists();
+                            });
+                            a.appendChild(b);
+                        }
+                    }
+                });
+                inp.addEventListener("keydown", function(e) {
+                    let x = document.getElementById(this.id + "autocomplete-list");
+                    if (x) x = x.getElementsByTagName("div");
+                    if (e.keyCode == 40) { currentFocus++; addActive(x); } 
+                    else if (e.keyCode == 38) { currentFocus--; addActive(x); } 
+                    else if (e.keyCode == 13) {
+                        e.preventDefault();
+                        if (currentFocus > -1) { if (x) x[currentFocus].click(); }
+                    }
+                });
+                function addActive(x) {
+                    if (!x) return false;
+                    removeActive(x);
+                    if (currentFocus >= x.length) currentFocus = 0;
+                    if (currentFocus < 0) currentFocus = (x.length - 1);
+                    x[currentFocus].classList.add("autocomplete-active");
+                }
+                function removeActive(x) {
+                    for (let i = 0; i < x.length; i++) { x[i].classList.remove("autocomplete-active"); }
+                }
+                function closeAllLists(elmnt) {
+                    const x = document.getElementsByClassName("autocomplete-items");
+                    for (let i = 0; i < x.length; i++) {
+                        if (elmnt != x[i] && elmnt != inp) { x[i].parentNode.removeChild(x[i]); }
+                    }
+                }
+                document.addEventListener("click", (e) => closeAllLists(e.target));
+            }
+
+            dbStatusIndicator.textContent = 'データベース接続: 正常';
+            dbStatusIndicator.classList.add('text-green-600');
+            
+            loadMaterials();
+
+            addMaterialForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const isValidPrefecture = prefectures.some(p => p.kanji === materialOriginInput.value);
+                if (!isValidPrefecture) {
+                    showToast("産地は候補から正しく選択してください。", false);
+                    materialOriginInput.focus();
+                    return;
+                }
+
+                submitMaterialBtn.disabled = true;
+                submitMaterialBtn.textContent = '追加中...';
+
+                try {
+                    const materialsCollection = collection(db, "materials");
+                    const materialsSnapshot = await getDocs(materialsCollection);
+                    const newIdNumber = materialsSnapshot.size + 1;
+                    const newMaterialId = 'm' + String(newIdNumber).padStart(4, '0');
+
+                    const newMaterial = {
+                        id: newMaterialId,
+                        name: document.getElementById('materialName').value,
+                        origin: document.getElementById('materialOrigin').value,
+                        supplier: document.getElementById('materialSupplier').value,
+                    };
+
+                    await addDoc(materialsCollection, newMaterial);
+                    showToast("原料が正常に追加されました。");
+                    addMaterialForm.reset();
+                    await loadMaterials();
+                } catch (error) {
+                    console.error("原料の追加に失敗:", error);
+                    showToast("原料の追加に失敗しました。", false);
+                } finally {
+                    submitMaterialBtn.disabled = false;
+                    submitMaterialBtn.textContent = '原料を追加する';
+                }
+            });
+
+            materialList.addEventListener('click', async (e) => {
+                if (e.target.classList.contains('delete-btn')) {
+                    const docId = e.target.dataset.id;
+                    if (confirm("この原料を本当に削除しますか？")) {
+                        try {
+                            await deleteDoc(doc(db, "materials", docId));
+                            showToast("原料を削除しました。");
+                            await loadMaterials();
+                        } catch (error) {
+                            console.error("原料の削除に失敗:", error);
+                            showToast("原料の削除に失敗しました。", false);
+                        }
+                    }
+                }
+            });
+            
+            materialOriginInput.addEventListener('blur', (e) => {
+                let value = e.target.value.trim();
+                if (value.endsWith('産')) {
+                    e.target.value = value.slice(0, -1);
+                }
+            });
+            setupAutocomplete(materialOriginInput, prefectures);
+        });
+
+        document.addEventListener('firebase-failed', (e) => {
+            console.error("Firebaseの初期化またはデータ読み込みに失敗:", e.detail);
+            dbStatusIndicator.textContent = 'データベース接続: エラー';
+            dbStatusIndicator.classList.add('text-red-600');
+            loadingIndicator.textContent = `データベースに接続できませんでした。`;
+        });
+    </script>
+    
+    <!-- ▼▼▼ 共通のFirebase初期化スクリプト ▼▼▼ -->
+    <script type="module">
+      import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+      import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+      import { getFirestore, collection, getDocs, addDoc, deleteDoc, doc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+      import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-functions.js";
+
+      try {
+        const firebaseConfig = __FIREBASE_CONFIG__;
+        const app = initializeApp(firebaseConfig);
+        
+        window.db = getFirestore(app);
+        window.auth = getAuth(app);
+        window.functions = getFunctions(app, 'asia-northeast1');
+        window.httpsCallable = httpsCallable;
+        window.firebaseFirestore = { collection, getDocs, addDoc, deleteDoc, doc };
+
+        await signInAnonymously(window.auth);
+        document.dispatchEvent(new Event('firebase-ready'));
+      } catch (error) {
+        console.error("Firebase Initialization Failed:", error);
+        document.dispatchEvent(new CustomEvent('firebase-failed', { detail: error }));
+      }
+    </script>
+</body>
+</html>
