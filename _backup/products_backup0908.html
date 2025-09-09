@@ -3,9 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ラベルチェックアプリ 商品マスタ管理 v1.0.0</title>
+    <title>ラベルチェックアプリ 商品マスタ管理 v1.1.2a</title>
     <script src="https://cdn.tailwindcss.com"></script>
     
+    <!--【修正点1】古いFirebase SDKとinit.jsを削除-->
+
     <style>
         body { font-family: 'Inter', sans-serif; }
         .toast {
@@ -110,6 +112,7 @@
     <div id="toast-notification" class="toast"></div>
 
     <script type="module">
+        //【修正点2】DOMContentLoadedの代わりに、新しいカスタムイベント'firebase-ready'を待つ
         document.addEventListener('firebase-ready', () => {
             const { collection, getDocs, addDoc, deleteDoc, doc } = window.firebaseFirestore;
 
@@ -130,7 +133,7 @@
             const productOriginInput = document.getElementById('productOrigin');
             const productJanInput = document.getElementById('productJan');
 
-            const db = window.db; 
+            const db = window.db; //【修正点3】グローバル変数からdbを取得
 
             const prefectures = [
                 { kanji: "北海道", hiragana: "ほっかいどう", romaji: "hokkaido" }, { kanji: "青森県", hiragana: "あおもりけん", romaji: "aomoriken" },
@@ -166,11 +169,10 @@
             }
             
             async function analyzeLabelWithAI(base64ImageData) {
+                //【修正点4】Cloud Functionsの呼び出し方を最新SDKの形式に変更
                 const analyzeLabel = window.httpsCallable(window.functions, 'analyzeLabel');
                 try {
                     const result = await analyzeLabel({ imageData: base64ImageData });
-                    // onRequestに変更した場合、result.dataの中にさらにdataプロパティがあることを想定
-                    // callable functionのままなら、`result.data`でOK
                     return result.data;
                 } catch (error) {
                     console.error("Cloud Function call failed:", error);
@@ -414,13 +416,7 @@
         
         window.db = getFirestore(app);
         window.auth = getAuth(app);
-        
-        // ★★★★★★★★★★ ここを修正 ★★★★★★★★★★
-        // 'asia-northeast1' のリージョン指定を削除します。
-        // これにより、Firebase Hostingのプロキシ経由で関数が呼び出され、CORSエラーが回避されます。
-        window.functions = getFunctions(app);
-        // ★★★★★★★★★★★★★★★★★★★★★★★★★
-
+        window.functions = getFunctions(app, 'asia-northeast1');
         window.httpsCallable = httpsCallable;
         window.firebaseFirestore = { collection, getDocs, addDoc, deleteDoc, doc };
 
